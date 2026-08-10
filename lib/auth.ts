@@ -1,5 +1,5 @@
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db, toSafeUser, userMapper, type SafeUser } from "./db";
 
@@ -119,10 +119,15 @@ async function destroySessionByCookie() {
 
 export async function setSessionCookie(token: string) {
   const store = await cookies();
+  // 只在真正通过 HTTPS 访问时才给会话 cookie 打 Secure 标记。
+  // 直接走明文 HTTP（如 http://IP:3000 尚未配 HTTPS 时）不能打 Secure，
+  // 否则浏览器会拒绝发送该会话 cookie，导致"登录成功却马上被踢回登录页"。
+  const h = await headers();
+  const isHttps = h.get("x-forwarded-proto") === "https";
   store.set(SESSION_COOKIE, token, {
     httpOnly: true,
     sameSite: "lax",
-    secure: process.env.NODE_ENV === "production",
+    secure: isHttps,
     path: "/",
     maxAge: SESSION_DAYS * 24 * 3600,
   });
