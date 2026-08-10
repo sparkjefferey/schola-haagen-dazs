@@ -1,0 +1,28 @@
+{
+  "name": "schola-haagen-dazs",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "seed": "node scripts/seed.mjs",
+    "db:reset": "node scripts/db-reset.mjs",
+    "e2e": "node scripts/e2e.mjs",
+    "public": "cloudflared tunnel --url http://localhost:3000"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.4.1",
+    "next": "^15.5.6",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^24.7.2",
+    "@types/react": "^19.2.8",
+    "@types/react-dom": "^19.2.3",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.3"
+  }
+}

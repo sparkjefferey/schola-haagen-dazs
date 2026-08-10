@@ -1,0 +1,18 @@
+services:
+  schola:
+    build: .
+    container_name: schola-haagen-dazs
+    restart: unless-stopped   # 进程挂了/服务器重启，docker 自动拉起，基本免维护
+    # 访问端口：默认用 3000，浏览器开 http://服务器IP:3000
+    # 想直接用 80 端口（网址不用输端口），把下面一行改成 "80:3000" 即可
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      # 给后续管理者用的邀请码（可选）。首任管理员=第一个注册的用户，无需此码。
+      - ADMIN_INVITE=${ADMIN_INVITE:-}
+    volumes:
+      - schola-data:/app/data   # 数据库持久化：容器重建/更新，论文与账号数据不丢
+
+volumes:
+  schola-data:
