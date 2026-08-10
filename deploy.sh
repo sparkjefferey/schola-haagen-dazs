@@ -33,6 +33,12 @@ docker compose build
 docker compose up -d
 
 # 4) 首次初始化示例数据（账号/示例论文）。db 已有数据时 seed 是安全的，不会重复插入。
+#    先等网站真正就绪（next 启动时会建好所有表），避免 seed 抢跑报 "no such table"。
+echo ">> 等待网站就绪（确保数据库表已建好）..."
+for i in $(seq 1 30); do
+  if curl -fsS http://localhost:3000/ >/dev/null 2>&1; then echo ">> 网站已就绪"; break; fi
+  sleep 2
+done
 echo ">> 初始化示例数据（仅首次需要，重复跑无害）..."
 docker compose exec -T schola npm run seed || echo "（seed 跳过，可能已初始化）"
 
