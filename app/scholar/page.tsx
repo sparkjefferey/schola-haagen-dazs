@@ -130,6 +130,10 @@ export default function ScholarPage() {
       {!loading && papers.length > 0 && (
         <p className="quote" style={{ fontSize: 13 }}>
           共得 {total} 篇{ cached ? "（缓存）" : "" }，按被引数降序。
+          <br />
+          <span style={{ opacity: 0.7 }}>
+            标注「预印本」者为未经同行评审之草稿（如 arXiv）；其余来源混合预印本与正式发表，未逐一判别。
+          </span>
         </p>
       )}
 
@@ -158,6 +162,22 @@ export default function ScholarPage() {
                 >
                   {SOURCE_LABELS[p.source]}
                 </span>{" "}
+                {p.peerReviewed === false && (
+                  <span
+                    className="badge"
+                    style={{ background: "#b31b1b", color: "#fff", borderColor: "#b31b1b" }}
+                  >
+                    预印本
+                  </span>
+                )}
+                {p.peerReviewed === true && (
+                  <span
+                    className="badge"
+                    style={{ background: "#1f6f54", color: "#fff", borderColor: "#1f6f54" }}
+                  >
+                    已发表
+                  </span>
+                )}{" "}
                 {p.authors.slice(0, 4).join("、")}
                 {p.authors.length > 4 ? " 等" : ""}
                 {p.year ? ` · ${p.year}` : ""}

@@ -17,6 +17,7 @@ export interface PaperItem {
   citationCount: number;
   journal: string | null;
   keywords: string[];
+  peerReviewed: boolean | null; // 是否已同行评审：false=预印本(草稿)，true=已发表，null=混合来源未判别
 }
 
 export const SOURCE_LABELS: Record<SourceKey, string> = {

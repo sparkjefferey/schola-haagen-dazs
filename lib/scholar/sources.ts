@@ -56,6 +56,7 @@ export async function openAlexSearch(query: string, limit: number): Promise<Pape
     citationCount: w.cited_by_count ?? 0,
     journal: w.primary_location?.source?.display_name ?? null,
     keywords: (w.concepts ?? []).slice(0, 6).map((c: any) => c.display_name),
+    peerReviewed: null,
   }));
 }
 
@@ -131,6 +132,7 @@ function parseArxiv(xml: string): PaperItem[] {
       citationCount: 0,
       journal: journal ? journal.replace(/\s+/g, " ").trim() : null,
       keywords: [],
+      peerReviewed: false,
     };
   });
 }
@@ -164,6 +166,7 @@ export async function semanticScholarSearch(query: string, limit: number): Promi
     citationCount: p.citationCount ?? 0,
     journal: p.venue ?? null,
     keywords: [],
+    peerReviewed: null,
   }));
 }
 
@@ -194,6 +197,7 @@ export async function crossrefSearch(query: string, limit: number): Promise<Pape
     citationCount: it["is-referenced-by-count"] ?? 0,
     journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : null,
     keywords: Array.isArray(it.subject) ? it.subject.slice(0, 6) : [],
+    peerReviewed: null,
   }));
 }
 
