@@ -9,6 +9,7 @@ const SOURCE_COLOR: Record<SourceKey, string> = {
   arxiv: "#b31b1b",
   semantic_scholar: "#1f6f54",
   crossref: "#1b4f9c",
+  core: "#6b3fa0",
 };
 
 export default function ScholarPage() {
@@ -56,7 +57,7 @@ export default function ScholarPage() {
         <Scroll size={52} color="var(--maroon)" />
         <h1 className="big-title" style={{ marginTop: 4 }}>学 林 检 索</h1>
         <p className="quote" style={{ margin: "0 auto" }}>
-          通览寰宇学海——自 OpenAlex、arXiv、Semantic Scholar、Crossref 四库并搜，去重呈览。
+          通览寰宇学海——自 OpenAlex、arXiv、Semantic Scholar、Crossref、CORE 五库并搜，去重呈览（CORE 含中文开放论文，需免费密钥启用）。
         </p>
       </section>
 

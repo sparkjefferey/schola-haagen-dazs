@@ -11,6 +11,9 @@ services:
       - NODE_ENV=production
       # 给后续管理者用的邀请码（可选）。首任管理员=第一个注册的用户，无需此码。
       - ADMIN_INVITE=${ADMIN_INVITE:-}
+      # CORE 学术源免费密钥（可选）：去 https://core.ac.uk/services/api 免费注册，
+      # 拿到 key 后填到同目录 .env 文件的 SCHOLAR_CORE_KEY=你的key，再 `docker compose up -d` 即可启用中文开放论文检索。
+      - SCHOLAR_CORE_KEY=${SCHOLAR_CORE_KEY:-}
     volumes:
       - schola-data:/app/data   # 数据库持久化：容器重建/更新，论文与账号数据不丢
 

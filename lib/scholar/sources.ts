@@ -206,6 +206,41 @@ function cleanCrossrefAbstract(s: string | undefined): string | null {
   return s.replace(/<\/?jats:p[^>]*>/g, " ").replace(/\s+/g, " ").trim() || null;
 }
 
+// ---------------- CORE（开放获取聚合，含中文开放论文，需免费 API key）----------------
+export async function coreSearch(query: string, limit: number): Promise<PaperItem[]> {
+  const key = process.env.SCHOLAR_CORE_KEY;
+  if (!key) {
+    console.warn("[scholar] 未配置 SCHOLAR_CORE_KEY，跳过 CORE 源");
+    return [];
+  }
+  await throttle("core", 600); // 免费层 150 次/15 分钟 ≈ 10/min
+  const url = new URL("https://api.core.ac.uk/v3/search/works");
+  url.searchParams.set("q", query);
+  url.searchParams.set("limit", String(Math.min(limit, 50)));
+  const res = await fetch(url, {
+    headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`CORE ${res.status}`);
+  const data = (await res.json()) as any;
+  const items: any[] = data.results ?? [];
+  return items.map((it): PaperItem => ({
+    id: `core_${it.id ?? Math.random().toString(36).slice(2)}`,
+    title: it.title ?? "(无题)",
+    authors: (it.authors ?? []).map((a: any) => a.name).filter(Boolean),
+    year: it.yearPublished ?? null,
+    doi: it.doi ?? null,
+    abstract: it.abstract ?? null,
+    source: "core",
+    sourceId: it.id != null ? String(it.id) : null,
+    url: it.doi ? `https://doi.org/${it.doi}` : it.downloadUrl ?? null,
+    pdfUrl: it.downloadUrl ?? null,
+    citationCount: 0,
+    journal: it.sourceName ?? it.publisher ?? null,
+    keywords: (it.topics ?? []).slice(0, 6),
+    peerReviewed: null,
+  }));
+}
+
 // ---------------- 聚合 + 去重 ----------------
 export interface ScholarQuery {
   query: string;
@@ -223,6 +258,7 @@ export async function searchScholar(opts: ScholarQuery): Promise<PaperItem[]> {
   if (sources.includes("arxiv")) tasks.push(arxivSearch(opts.query, limit));
   if (sources.includes("semantic_scholar")) tasks.push(semanticScholarSearch(opts.query, limit));
   if (sources.includes("crossref")) tasks.push(crossrefSearch(opts.query, limit));
+  if (sources.includes("core")) tasks.push(coreSearch(opts.query, limit));
 
   const settled = await Promise.allSettled(tasks);
   const all: PaperItem[] = [];

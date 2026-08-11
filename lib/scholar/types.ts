@@ -1,7 +1,7 @@
 // 学术检索统一数据模型 —— 借鉴 paper-hunter 的 PaperResult，迁移为 TS 版。
 // 此文件不含任何服务端代码（无 fetch / 无 process.env），可安全在客户端与服务端共用。
 
-export type SourceKey = "openalex" | "arxiv" | "semantic_scholar" | "crossref";
+export type SourceKey = "openalex" | "arxiv" | "semantic_scholar" | "crossref" | "core";
 
 export interface PaperItem {
   id: string; // 稳定标识（source + sourceId 或 doi 哈希）
@@ -25,6 +25,7 @@ export const SOURCE_LABELS: Record<SourceKey, string> = {
   arxiv: "arXiv",
   semantic_scholar: "Semantic Scholar",
   crossref: "Crossref",
+  core: "CORE",
 };
 
-export const ALL_SOURCES: SourceKey[] = ["openalex", "arxiv", "semantic_scholar", "crossref"];
+export const ALL_SOURCES: SourceKey[] = ["openalex", "arxiv", "semantic_scholar", "crossref", "core"];
