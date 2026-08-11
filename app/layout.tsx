@@ -40,6 +40,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   else if (pathname.startsWith("/about")) theme = "about";
   else if (pathname.startsWith("/forum")) theme = "forum";
   else if (pathname.startsWith("/papers")) theme = "papers";
+  else if (pathname.startsWith("/scholar")) theme = "papers";
   else if (pathname.startsWith("/ranking")) theme = "ranking";
   else if (pathname.startsWith("/users")) theme = "users";
   else if (pathname.startsWith("/admin")) theme = "admin";
@@ -70,6 +71,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
               <a className="nitem" href="/about">学派志</a>
               <a className="nitem" href="/forum">学术论坛</a>
               <a className="nitem" href="/papers">论文库</a>
+              <a className="nitem" href="/scholar">学林检索</a>
               <a className="nitem" href="/ranking">作者学榜</a>
               <span className="spacer" />
               {user ? (
@@ -129,6 +131,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <a href="/about">学派志</a>
             <a href="/forum">论坛</a>
             <a href="/papers">论文库</a>
+            <a href="/scholar">学林检索</a>
             <a href="/ranking">学榜</a>
           </div>
           <div className="foot-motto">IN LACTE · VERITAS</div>
