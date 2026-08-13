@@ -144,6 +144,16 @@ export interface Session {
   expires_at: string;
 }
 
+export interface Message {
+  id: number;
+  sender_id: number | null; // NULL 表示系统消息
+  receiver_id: number;
+  body: string;
+  kind: "pm" | "system";
+  read: number;
+  created_at: string;
+}
+
 export const FORUM_CATEGORIES = [
   "学术交流",
   "冷食哲学",
@@ -267,6 +277,18 @@ export function initSchema() {
       value       TEXT NOT NULL DEFAULT '',
       updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS messages (
+      id          INTEGER PRIMARY KEY AUTOINCREMENT,
+      sender_id   INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      receiver_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      body        TEXT NOT NULL,
+      kind        TEXT NOT NULL DEFAULT 'pm' CHECK (kind IN ('pm','system')),
+      read        INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id, read);
+    CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(sender_id, receiver_id, created_at);
 
     CREATE TABLE IF NOT EXISTS login_attempts (
       ip         TEXT NOT NULL,

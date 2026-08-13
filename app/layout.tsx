@@ -8,6 +8,7 @@ import { schoolYear } from "@/lib/format";
 import { MeanderBand } from "@/components/emblem";
 import { GreekKey, IonicColumn, Amphora, LaurelWreath } from "@/components/decor";
 import { logoutAction } from "@/lib/actions";
+import { MessageBell } from "@/components/message-bell";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -82,6 +83,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     </a>
                     {user.endorsed === 1 && <span className="badge">认证学者</span>}
                     {user.role === "admin" && <span className="badge badge-admin">管理者</span>}
+                    <MessageBell />
                     {user.role === "admin" && <a className="nitem" href="/admin">燕京阁</a>}
                   </span>
                   <form action={logoutAction} className="inline-form">

@@ -136,6 +136,13 @@ export default async function UserPage({
             </p>
           </form>
         )}
+        {!isSelf && me && me.status === "active" && user.status === "active" && (
+          <p className="meta" style={{ marginTop: 14 }}>
+            <Link href={`/messages?with=${user.id}`} className="btn btn-sm btn-gold">
+              私 信
+            </Link>
+          </p>
+        )}
       </div>
 
       <h2 className="section-title" style={{ fontSize: 21 }}>论 著</h2>

@@ -18,6 +18,7 @@ import {
 } from "@/lib/auth";
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
+import { sendSystemMessage } from "@/lib/messages";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
@@ -79,6 +80,11 @@ export async function registerUser(formData: FormData) {
   if (role === "scholar") {
     logAudit(info.lastInsertRowid as number, "user.register", username, "公开入学");
   }
+
+  sendSystemMessage(
+    info.lastInsertRowid as number,
+    "欢迎入学 Schola Häagen-Dazs！此间为学派同侪论学、刊文、互证之所。若有疑义或建言，可赴『讯息』向管理者陈情。",
+  );
 
   redirect(`/login?registered=${encodeURIComponent(username)}`);
 }
@@ -438,13 +444,14 @@ export async function acceptPaperAction(paperId: number, note: string) {
 
 export async function publishPaperAction(paperId: number) {
   const me = await requireAdmin();
-  const p = db.prepare("SELECT author_id, status FROM papers WHERE id = ?").get(paperId) as any;
+  const p = db.prepare("SELECT id, author_id, title, status FROM papers WHERE id = ?").get(paperId) as any;
   if (!p) fail("查无此文");
   if (p.status !== "accepted") fail("须先录用，方可刊印");
   db.prepare("UPDATE papers SET status = 'published', published_at = datetime('now'), updated_at = datetime('now') WHERE id = ?").run(paperId);
   db.prepare("UPDATE users SET endorsed = 1 WHERE id = ?").run(p.author_id);
   recordEvent(paperId, "accepted", "published", "刊印成典，作者获『认证学者』之印", me.id);
   logAudit(me.id, "paper.publish", `paper#${paperId}`, "刊印；作者获认证学者印");
+  sendSystemMessage(p.author_id, `你的论文《${p.title}》已刊印成典，并获『认证学者』之印。可赴论文库查看。`);
   revalidatePath(`/papers/${paperId}`);
   revalidatePath("/papers");
   revalidatePath("/ranking");
@@ -507,6 +514,11 @@ export async function setUserRoleAction(userId: number, role: "admin" | "scholar
   }
   db.prepare("UPDATE users SET role = ? WHERE id = ?").run(role, userId);
   logAudit(actor.id, `role.${role}`, `@${target.username}`, `身阶变动 → ${role}`);
+  if (role === "admin") {
+    sendSystemMessage(userId, "你已被任命为学派管理者，自此可入燕京阁调度学务。");
+  } else {
+    sendSystemMessage(userId, "你的管理者身阶已被收回，复为学者。");
+  }
   revalidatePath("/admin");
 }
 
@@ -527,6 +539,7 @@ export async function claimAdminAction(formData: FormData) {
 
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(me.id);
   logAudit(me.id, "admin.claim", `@${me.username}`, "凭邀请函就任管理者");
+  sendSystemMessage(me.id, "你已凭邀请函就任学派管理者，自此可入燕京阁调度学务。");
   revalidatePath(`/users/${me.username}`);
   redirect(`/users/${me.username}?ok=就任`);
 }
@@ -604,6 +617,25 @@ export async function revokeInviteAction(code: string) {
 
 // ==================== 文宣司（可编辑文案） ====================
 // 后台一次性提交全部文案字段；库里 upsert，留空则回退默认（由读取侧处理）。
+// ==================== 站内讯息（私聊 + 系统消息） ====================
+
+export async function sendMessageAction(formData: FormData) {
+  const me = await requireLogin();
+  const receiverId = Number(formData.get("receiver_id"));
+  let body = String(formData.get("body") ?? "").trim();
+  if (!receiverId || !Number.isFinite(receiverId)) redirect("/messages");
+  if (body.length === 0) redirect(`/messages?with=${receiverId}&e=empty`);
+  if (body.length > 2000) body = body.slice(0, 2000);
+  if (receiverId === me.id) redirect("/messages?e=self");
+  const target = db.prepare("SELECT id, status FROM users WHERE id = ?").get(receiverId) as any;
+  if (!target || target.status !== "active") redirect(`/messages?e=nouser`);
+  db.prepare(
+    "INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')",
+  ).run(me.id, receiverId, body);
+  revalidatePath("/messages");
+  redirect(`/messages?with=${receiverId}&sent=1`);
+}
+
 export async function setContentAction(formData: FormData) {
   const actor = await requireAdmin();
   for (const k of CONTENT_KEYS) {
