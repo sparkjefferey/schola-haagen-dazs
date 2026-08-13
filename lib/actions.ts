@@ -19,6 +19,7 @@ import {
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
+import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
@@ -629,11 +630,107 @@ export async function sendMessageAction(formData: FormData) {
   if (receiverId === me.id) redirect("/messages?e=self");
   const target = db.prepare("SELECT id, status FROM users WHERE id = ?").get(receiverId) as any;
   if (!target || target.status !== "active") redirect(`/messages?e=nouser`);
+  // 互证豁免额度：管理员或两人互证可无限私信；否则受每日限额约束（唯一强制点）
+  if (
+    me.role !== "admin" &&
+    !isMutuallyCertified(me.id, receiverId) &&
+    pmQuotaUsed(me.id) >= pmDailyLimit()
+  ) {
+    redirect(`/messages?with=${receiverId}&e=limit`);
+  }
   db.prepare(
     "INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')",
   ).run(me.id, receiverId, body);
   revalidatePath("/messages");
   redirect(`/messages?with=${receiverId}&sent=1`);
+}
+
+// ==================== 同侪互证（互相关注式） ====================
+
+export async function requestCertificationAction(targetId: number) {
+  const me = await requireLogin();
+  if (targetId === me.id) redirect(`/users/${me.username}?e=cert_self`);
+
+  const target = db
+    .prepare("SELECT id, username, display_name, role, status FROM users WHERE id = ?")
+    .get(targetId) as any;
+  if (!target || target.status !== "active") redirect(`/users/${me.username}?e=cert_nouser`);
+  if (me.role === "admin" || target.role === "admin") redirect(`/users/${me.username}?e=cert_admin`);
+  if (rateLimited(`certreq:${me.id}`, 5, 3600_000)) redirect(`/users/${target.username}?e=cert_rate`);
+
+  const meName = me.display_name;
+  const targetName = target.display_name;
+  const tx = db.transaction(() => {
+    // 对方已先向我发起互证 → 自动互认（反向 pending）
+    const reverse = db
+      .prepare("SELECT id FROM certifications WHERE requester_id=? AND responder_id=? AND status='pending'")
+      .get(targetId, me.id) as any;
+    if (reverse) {
+      db.prepare("UPDATE certifications SET status='accepted', responded_at=datetime('now') WHERE id=?").run(reverse.id);
+      sendSystemMessage(me.id, `${targetName} 已先向你发起互证，你们现已互相应允，可无限私信。`);
+      sendSystemMessage(targetId, `你向 ${meName} 发起的互证请求已被应允，你们可无限私信。`);
+      return "mutual";
+    }
+    // 我发出的既有记录：按状态处置
+    const mine = db
+      .prepare("SELECT id, status FROM certifications WHERE requester_id=? AND responder_id=?")
+      .get(me.id, targetId) as any;
+    if (mine) {
+      if (mine.status === "accepted") return "already";
+      if (mine.status === "pending") return "pending";
+      db.prepare("UPDATE certifications SET status='pending', responded_at=NULL, created_at=datetime('now') WHERE id=?").run(mine.id);
+      sendSystemMessage(targetId, `${meName} 再次请求与你同侪互证。`);
+      return "sent";
+    }
+    db.prepare("INSERT INTO certifications (requester_id, responder_id, status) VALUES (?, ?, 'pending')").run(
+      me.id,
+      targetId,
+    );
+    sendSystemMessage(targetId, `${meName} 请求与你同侪互证。请赴其名册页应允，互证后即可无限私信。`);
+    return "sent";
+  });
+  const outcome = tx();
+
+  logAudit(me.id, "cert.request", `@${target.username}`, outcome);
+  revalidatePath("/messages");
+  revalidatePath(`/users/${me.username}`);
+  revalidatePath(`/users/${target.username}`);
+  redirect(
+    `/users/${target.username}?ok=${outcome === "mutual" ? "cert_mutual" : "cert_sent"}`,
+  );
+}
+
+export async function respondCertificationAction(targetId: number, accept: boolean) {
+  const me = await requireLogin();
+  const row = db
+    .prepare("SELECT id FROM certifications WHERE requester_id=? AND responder_id=? AND status='pending'")
+    .get(targetId, me.id) as any;
+  if (!row) redirect(`/users/${me.username}?e=cert_none`);
+  const target = db.prepare("SELECT username, display_name FROM users WHERE id = ?").get(targetId) as any;
+  if (!target) redirect(`/users/${me.username}?e=cert_none`);
+
+  const meName = me.display_name;
+  const tx = db.transaction(() => {
+    if (accept) {
+      db.prepare("UPDATE certifications SET status='accepted', responded_at=datetime('now') WHERE id=?").run(row.id);
+      // 反向 pending（我也发过）一并置为互认，保证对称
+      const reverse = db
+        .prepare("SELECT id FROM certifications WHERE requester_id=? AND responder_id=? AND status='pending'")
+        .get(me.id, targetId) as any;
+      if (reverse) db.prepare("UPDATE certifications SET status='accepted', responded_at=datetime('now') WHERE id=?").run(reverse.id);
+      sendSystemMessage(targetId, `${meName} 已应允与你同侪互证，你们现可无限私信。`);
+    } else {
+      db.prepare("UPDATE certifications SET status='declined', responded_at=datetime('now') WHERE id=?").run(row.id);
+      sendSystemMessage(targetId, `${meName} 婉拒了你的互证请求。`);
+    }
+  });
+  tx();
+
+  logAudit(me.id, accept ? "cert.accept" : "cert.decline", `@${target.username}`, "");
+  revalidatePath("/messages");
+  revalidatePath(`/users/${me.username}`);
+  revalidatePath(`/users/${target.username}`);
+  redirect(`/users/${target.username}?ok=${accept ? "cert_accepted" : "cert_declined"}`);
 }
 
 export async function setContentAction(formData: FormData) {
