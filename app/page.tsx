@@ -4,6 +4,7 @@ import { Medallion } from "@/components/emblem";
 import { IonicColumn, Scroll, LaurelWreath, Lyre } from "@/components/decor";
 import { Avatar } from "@/components/avatar";
 import { listPapers, listThreads, getRanking } from "@/lib/queries";
+import { getContentMap } from "@/lib/content";
 import { formatShort, timeAgo, schoolYear } from "@/lib/format";
 
 export const metadata: Metadata = { title: "首府之户" };
@@ -15,6 +16,7 @@ export default async function HomePage() {
     getRanking(8),
   ]);
   const year = schoolYear();
+  const c = await getContentMap();
 
   return (
     <div>
@@ -27,11 +29,7 @@ export default async function HomePage() {
         </div>
         <p className="motto">“In Lacte, Veritas.”</p>
         <p className="motto-trans">真 理 存 于 乳 膏 之 中</p>
-        <p className="quote">
-          Häagen-Dazs（沙氏）学派，由两位好友于初夏之夜立学。此馆为学派同侪论学、
-          刊文、互证的栖身之所——以冰淇淋之甘甜，喻求知之欢愉；以学霸之严谨，
-          立学人之风骨。凡入学派者，皆为同僚学者；凡发一论者，皆为学派之荣光。
-        </p>
+        <p className="quote">{c.home_quote}</p>
         <div style={{ marginTop: 26, display: "flex", gap: 14, justifyContent: "center" }}>
           <Link className="btn btn-gold" href="/register">入学入派</Link>
           <Link className="btn" href="/about">观学派志</Link>
@@ -47,7 +45,7 @@ export default async function HomePage() {
 
       {/* ======= 学派三义 ======= */}
       <section className="section">
-        <h2 className="section-title">学 派 三 义</h2>
+        <h2 className="section-title">{c.home_three_title}</h2>
         <div className="grid3">
           <div className="card" style={{ textAlign: "center" }}>
             <LaurelWreath size={56} color="var(--maroon)" />
@@ -78,7 +76,7 @@ export default async function HomePage() {
 
       {/* ======= 三列最新 ======= */}
       <section className="section">
-        <h2 className="section-title">庭 院 即 报</h2>
+        <h2 className="section-title">{c.home_court_title}</h2>
         <div className="grid3">
           <div className="card">
             <h3>新刊论著</h3>
@@ -145,7 +143,7 @@ export default async function HomePage() {
       {/* ======= 学术公约 ======= */}
       <section className="section" style={{ textAlign: "center" }}>
         <div className="ornament-divider">◇</div>
-        <h2 className="big-title" style={{ fontSize: 28 }}>学派之约</h2>
+        <h2 className="big-title" style={{ fontSize: 28 }}>{c.home_covenant_title}</h2>
         <p className="lead" style={{ maxWidth: 720, margin: "0 auto" }}>
           予当治学，如治甜点：选料纯正，火候不欺；且尝且议，好友共席。
           Schola Häagen-Dazs 建学第 {year} 年，门墙常开，欢迎新学士入驻。

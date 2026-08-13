@@ -3,11 +3,13 @@ import Link from "next/link";
 import { Medallion } from "@/components/emblem";
 import { IonicColumn, Scroll, Amphora } from "@/components/decor";
 import { schoolYear } from "@/lib/format";
+import { getContentMap } from "@/lib/content";
 
 export const metadata: Metadata = { title: "学派志" };
 
-export default function AboutPage() {
+export default async function AboutPage() {
   const year = schoolYear();
+  const c = await getContentMap();
   return (
     <div>
       <section className="hero" style={{ padding: "30px 0 10px" }}>
@@ -17,7 +19,7 @@ export default function AboutPage() {
 
       {/* 立学缘由 */}
       <section className="section">
-        <h2 className="section-title">立学缘由</h2>
+        <h2 className="section-title">{c.about_why_title}</h2>
         <div className="grid2">
           <div className="card">
             <h3>名从天降，物有其名</h3>
@@ -37,7 +39,7 @@ export default function AboutPage() {
             <p className="latin-motto">In Lacte, Veritas.</p>
             <p className="lead" style={{ fontSize: 15 }}>真理存于乳膏之中</p>
             <p style={{ fontSize: 14, color: "var(--ink-soft)" }}>
-              兼有副训：「无引不立论，无思不落笔；且尝且议，好友共席。」
+              {c.about_submotto}
             </p>
           </div>
         </div>
@@ -45,7 +47,7 @@ export default function AboutPage() {
 
       {/* 章程 */}
       <section className="section">
-        <h2 className="section-title">学派章程（初定）</h2>
+        <h2 className="section-title">{c.about_charter_title}</h2>
         <div className="grid3">
           <div className="card">
             <h3>壹 · 论学</h3>
@@ -76,7 +78,7 @@ export default function AboutPage() {
 
       {/* 两阶之分 */}
       <section className="section">
-        <h2 className="section-title">两阶之制</h2>
+        <h2 className="section-title">{c.about_two_ranks_title}</h2>
         <p style={{ maxWidth: 760, color: "var(--ink-soft)" }}>
           学派不设诸多品位，仅两阶：<b style={{ color: "var(--maroon-deep)" }}>管理者</b>与
           <b style={{ color: "var(--maroon-deep)" }}>学者</b>。注册时自择身份；管理者另有
@@ -102,7 +104,7 @@ export default function AboutPage() {
 
       {/* 学科门类 */}
       <section className="section">
-        <h2 className="section-title">分科之制</h2>
+        <h2 className="section-title">{c.about_disciplines_title}</h2>
         <div className="grid3">
           {[
             ["乳脂哲学", "以奶昔、奶油、酸奶之品性，喻形而上学诸命题。"],
@@ -130,7 +132,7 @@ export default function AboutPage() {
           <Amphora size={40} />
         </div>
         <p className="lead" style={{ marginTop: 18 }}>
-          学派初立，章程可改，门墙常开。若你同好冷食与真理，欢迎入学同食同论。
+          {c.about_footer_appeal}
         </p>
         <Link className="btn btn-gold" href="/register">入院注册</Link>
       </section>

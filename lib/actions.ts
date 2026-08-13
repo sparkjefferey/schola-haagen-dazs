@@ -17,6 +17,7 @@ import {
   clearFailedAttempts,
 } from "@/lib/auth";
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
+import { CONTENT_KEYS } from "@/lib/content";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
@@ -599,6 +600,24 @@ export async function revokeInviteAction(code: string) {
   db.prepare("UPDATE invites SET revoked = 1 WHERE code = ?").run(code);
   logAudit(actor.id, "invite.revoke", code, "作废邀请函");
   redirect(`/admin?tab=invites&ok=${encodeURIComponent("已作废")}`);
+}
+
+// ==================== 文宣司（可编辑文案） ====================
+// 后台一次性提交全部文案字段；库里 upsert，留空则回退默认（由读取侧处理）。
+export async function setContentAction(formData: FormData) {
+  const actor = await requireAdmin();
+  for (const k of CONTENT_KEYS) {
+    const v = String(formData.get(k.key) ?? "").slice(0, 5000);
+    db.prepare(
+      `INSERT INTO site_content (key, value, updated_at) VALUES (?, ?, datetime('now'))
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = datetime('now')`,
+    ).run(k.key, v);
+  }
+  logAudit(actor.id, "content.edit", "site_content", `编修文案 ${CONTENT_KEYS.length} 项`);
+  revalidatePath("/");
+  revalidatePath("/about");
+  revalidatePath("/forum");
+  redirect(`/admin?tab=content&ok=${encodeURIComponent("文案已存")}`);
 }
 
 // ==================== 检举 ====================

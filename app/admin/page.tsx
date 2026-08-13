@@ -25,7 +25,9 @@ import {
   revokeInviteAction,
   createAnnouncementAction,
   setAnnouncementAction,
+  setContentAction,
 } from "@/lib/actions";
+import { getContentMap, CONTENT_KEYS } from "@/lib/content";
 import { userMapper } from "@/lib/db";
 
 export const metadata: Metadata = { title: "燕京阁·管理" };
@@ -36,6 +38,7 @@ const TABS = [
   ["reports", "检举信箱"],
   ["invites", "徽章司·邀请"],
   ["announcements", "谕令"],
+  ["content", "文宣司"],
   ["members", "学籍名册"],
   ["audit", "审计日志"],
 ] as const;
@@ -65,6 +68,7 @@ export default async function AdminPage({
   const reports = listReports();
   const invites = listInvites();
   const announcements = listAnnouncements();
+  const contents = getContentMap();
   const audit = listAudit(80);
 
   const totalViews = (
@@ -163,6 +167,10 @@ export default async function AdminPage({
           createAnnouncementAction={createAnnouncementAction}
           setAnnouncementAction={setAnnouncementAction}
         />
+      )}
+
+      {active === "content" && (
+        <RenderContent contents={contents} />
       )}
 
       {active === "members" && (
@@ -397,6 +405,60 @@ function RenderAnnouncements({
         ))}
       </div>
     </>
+  );
+}
+
+function RenderContent({ contents }: { contents: Record<string, string> }) {
+  const groups = Array.from(new Set(CONTENT_KEYS.map((k) => k.group))).map((g) => ({
+    name: g,
+    items: CONTENT_KEYS.filter((k) => k.group === g),
+  }));
+  return (
+    <form action={setContentAction} className="card" style={{ padding: "18px 22px" }}>
+      <b style={{ fontFamily: "var(--display)", letterSpacing: "0.14em" }}>文 宣 司</b>
+      <p className="meta" style={{ margin: "6px 0 14px" }}>
+        改动即时生效于全馆。留空则回退默认文案（亦即页面当前所显之字）。
+      </p>
+      {groups.map((g) => (
+        <div key={g.name} style={{ marginBottom: 18 }}>
+          <h3
+            style={{
+              fontFamily: "var(--display)",
+              letterSpacing: "0.14em",
+              fontSize: 16,
+              margin: "0 0 10px",
+              color: "var(--maroon-deep)",
+            }}
+          >
+            {g.name}
+          </h3>
+          {g.items.map((k) => (
+            <label key={k.key} style={{ display: "block", marginBottom: 12 }}>
+              <span style={{ fontSize: 13, color: "var(--ink-soft)", display: "block", marginBottom: 4 }}>
+                {k.label}
+              </span>
+              {k.multiline ? (
+                <textarea
+                  name={k.key}
+                  defaultValue={contents[k.key] ?? ""}
+                  rows={4}
+                  style={{ ...inputStyle, width: "100%", resize: "vertical" }}
+                />
+              ) : (
+                <input
+                  name={k.key}
+                  defaultValue={contents[k.key] ?? ""}
+                  style={{ ...inputStyle, width: "100%" }}
+                />
+              )}
+            </label>
+          ))}
+        </div>
+      ))}
+      <button className="btn btn-gold" type="submit">
+        保 存 文 案
+      </button>
+    </form>
   );
 }
 

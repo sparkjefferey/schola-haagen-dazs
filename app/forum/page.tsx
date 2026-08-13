@@ -2,6 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { FORUM_CATEGORIES } from "@/lib/db";
 import { listThreads } from "@/lib/queries";
+import { getContentMap } from "@/lib/content";
 import { getSessionUser } from "@/lib/auth";
 import { createThreadAction } from "@/lib/actions";
 import { Avatar } from "@/components/avatar";
@@ -20,6 +21,7 @@ export default async function ForumPage({
   const active = FORUM_CATEGORIES.includes((cat ?? "") as any) ? cat! : undefined;
   const user = await getSessionUser();
   const threads = listThreads({ category: active });
+  const c = await getContentMap();
 
   const forumError =
     e === "title" ? "论题标题须在 4–80 字之间。" :
@@ -30,9 +32,9 @@ export default async function ForumPage({
     <div>
       <section className="hero" style={{ padding: "24px 0 6px" }}>
         <Scroll size={52} color="var(--maroon)" />
-        <h1 className="big-title" style={{ marginTop: 4 }}>学 术 论 坛</h1>
+        <h1 className="big-title" style={{ marginTop: 4 }}>{c.forum_title}</h1>
         <p className="quote" style={{ margin: "0 auto" }}>
-          以言立学，以辨明理——诸子百家，尽可在门下争鸣。
+          {c.forum_intro}
         </p>
       </section>
 
