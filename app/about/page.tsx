@@ -1,9 +1,22 @@
 import { Metadata } from "next";
 import Link from "next/link";
+import { Fragment, type ReactNode } from "react";
 import { Medallion } from "@/components/emblem";
 import { IonicColumn, Scroll, Amphora } from "@/components/decor";
 import { schoolYear } from "@/lib/format";
 import { getContentMap } from "@/lib/content";
+
+/** 轻量富文本：仅支持 **加粗**，安全无 HTML 注入（不 dangerouslySetInnerHTML）。 */
+function renderRich(text: string): ReactNode {
+  const parts = text.split(/(\*\*[^*]+\*\*)/g);
+  return parts.map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <b key={i} style={{ color: "var(--maroon-deep)" }}>{part.slice(2, -2)}</b>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
 
 export const metadata: Metadata = { title: "学派志" };
 
@@ -23,21 +36,14 @@ export default async function AboutPage() {
         <div className="grid2">
           <div className="card">
             <h3>名从天降，物有其名</h3>
-            <p>
-              Schola Häagen-Dazs——沙藏学馆，一名兼收两意：其一，Häagen-Dazs 乃冷食至艺，
-              我们愿学派如同它一般，<b>用料诚、搅制精、虽冷而甘</b>；其二，何期末一隅之
-              甘甜，实足以象征求知——入口凉冽，回甘悠长，正如治学，先苦思而后洞明。
-            </p>
-            <p>
-              学派由两位好友于 {year - 2} 年夏夜，在结伴啃下一罐共享品之后立誓而成：
-              「既同席而食，必同席而学。」
-            </p>
+            <p>{renderRich(c.about_why_p1)}</p>
+            <p>{renderRich(c.about_why_p2.replace("{year}", String(year - 2)))}</p>
           </div>
           <div className="card" style={{ textAlign: "center" }}>
             <Amphora size={70} color="var(--maroon)" />
             <h3>校训</h3>
-            <p className="latin-motto">In Lacte, Veritas.</p>
-            <p className="lead" style={{ fontSize: 15 }}>真理存于乳膏之中</p>
+            <p className="latin-motto">{c.about_motto_la}</p>
+            <p className="lead" style={{ fontSize: 15 }}>{c.about_motto_cn}</p>
             <p style={{ fontSize: 14, color: "var(--ink-soft)" }}>
               {c.about_submotto}
             </p>
@@ -80,23 +86,19 @@ export default async function AboutPage() {
       <section className="section">
         <h2 className="section-title">{c.about_two_ranks_title}</h2>
         <p style={{ maxWidth: 760, color: "var(--ink-soft)" }}>
-          学派不设诸多品位，仅两阶：<b style={{ color: "var(--maroon-deep)" }}>管理者</b>与
-          <b style={{ color: "var(--maroon-deep)" }}>学者</b>。注册时自择身份；管理者另有
-          「燕京阁」调度学务，二者皆可发论文、论辩、入榜。
+          {renderRich(c.about_two_ranks_p)}
         </p>
         <div className="grid2">
           <div className="card">
             <h3>管理者 · Curator</h3>
             <p style={{ color: "var(--ink-soft)", fontSize: 15 }}>
-              执掌学馆秩序：任免身份、删定过激之语、整理论文库、执掌学榜档案。
-              管理者须经邀请函入学，且学派不可一日无主（至少保留一位管理者）。
+              {renderRich(c.about_curator_desc)}
             </p>
           </div>
           <div className="card">
             <h3>学者 · Scholar</h3>
             <p style={{ color: "var(--ink-soft)", fontSize: 15 }}>
-              馆中自由人：著书立说、议坛纵横、评点他人篇章。学者之荣，全在文本之
-              上；学问之誉，尽在榜中。注册即入学，无任何门费。
+              {renderRich(c.about_scholar_desc)}
             </p>
           </div>
         </div>
@@ -106,14 +108,14 @@ export default async function AboutPage() {
       <section className="section">
         <h2 className="section-title">{c.about_disciplines_title}</h2>
         <div className="grid3">
-          {[
-            ["乳脂哲学", "以奶昔、奶油、酸奶之品性，喻形而上学诸命题。"],
-            ["感官美学", "甜、冷、脆、绵——味道如何塑造记忆与情感。"],
-            ["美食人类学", "一勺一勺的社会史：冰淇淋与文明。"],
-            ["冷藏物理学", "晶相、成核、冰点与过冷——冷冻的科学。"],
-            ["古文钞本", "旧时食单、谱牒、笔记的校勘与考释。"],
-            ["学派史", "本学派自建学以来的档案与传说。"],
-          ].map(([name, desc]) => (
+          {c.about_disciplines
+            .split("\n")
+            .map((line) => {
+              const i = line.indexOf("|");
+              return i === -1 ? null : [line.slice(0, i).trim(), line.slice(i + 1).trim()];
+            })
+            .filter((x): x is [string, string] => Array.isArray(x))
+            .map(([name, desc]) => (
             <div className="card" key={name} style={{ padding: 18 }}>
               <Scroll size={34} color="var(--gold-deep)" />
               <h3 style={{ margin: "8px 0 6px", fontSize: 17 }}>{name}</h3>

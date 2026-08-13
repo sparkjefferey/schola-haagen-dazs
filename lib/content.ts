@@ -53,6 +53,58 @@ export const CONTENT_KEYS: ContentKey[] = [
     multiline: true,
   },
 
+  // ===== 学派志 · 正文叙述 =====
+  {
+    key: "about_why_p1",
+    group: "学派志",
+    label: "立学缘由·名从天降（段落一）",
+    default:
+      "Schola Häagen-Dazs——沙藏学馆，一名兼收两意：其一，Häagen-Dazs 乃冷食至艺，我们愿学派如同它一般，**用料诚、搅制精、虽冷而甘**；其二，何期末一隅之甘甜，实足以象征求知——入口凉冽，回甘悠长，正如治学，先苦思而后洞明。",
+    multiline: true,
+  },
+  {
+    key: "about_why_p2",
+    group: "学派志",
+    label: "立学缘由·立誓（段落二，{year}为立学年）",
+    default:
+      "学派由两位好友于 {year} 年夏夜，在结伴啃下一罐共享品之后立誓而成：「既同席而食，必同席而学。」",
+    multiline: true,
+  },
+  { key: "about_motto_la", group: "学派志", label: "校训（拉丁文）", default: "In Lacte, Veritas.", multiline: false },
+  { key: "about_motto_cn", group: "学派志", label: "校训（中文）", default: "真理存于乳膏之中", multiline: false },
+  {
+    key: "about_two_ranks_p",
+    group: "学派志",
+    label: "两阶之制·说明正文",
+    default:
+      "学派不设诸多品位，仅两阶：**管理者**与**学者**。注册时自择身份；管理者另有「燕京阁」调度学务，二者皆可发论文、论辩、入榜。",
+    multiline: true,
+  },
+  {
+    key: "about_curator_desc",
+    group: "学派志",
+    label: "管理者·身份说明",
+    default:
+      "执掌学馆秩序：任免身份、删定过激之语、整理论文库、执掌学榜档案。管理者须经邀请函入学，且学派不可一日无主（至少保留一位管理者）。",
+    multiline: true,
+  },
+  {
+    key: "about_scholar_desc",
+    group: "学派志",
+    label: "学者·身份说明",
+    default:
+      "馆中自由人：著书立说、议坛纵横、评点他人篇章。学者之荣，全在文本之上；学问之誉，尽在榜中。注册即入学，无任何门费。",
+    multiline: true,
+  },
+  {
+    key: "about_disciplines",
+    group: "学派志",
+    label: "分科之制（每行：学科名|描述，可增删行）",
+    default:
+      "乳脂哲学|以奶昔、奶油、酸奶之品性，喻形而上学诸命题。\n感官美学|甜、冷、脆、绵——味道如何塑造记忆与情感。\n美食人类学|一勺一勺的社会史：冰淇淋与文明。\n冷藏物理学|晶相、成核、冰点与过冷——冷冻的科学。\n古文钞本|旧时食单、谱牒、笔记的校勘与考释。\n学派史|本学派自建学以来的档案与传说。",
+    multiline: true,
+  },
+
   // ===== 论坛 =====
   { key: "forum_title", group: "论坛", label: "页面标题", default: "学术论坛", multiline: false },
   {
