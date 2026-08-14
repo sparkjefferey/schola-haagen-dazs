@@ -75,7 +75,7 @@ export function buildBibtex(
   journal = {Schola Häagen-Dazs},
   year = {${year}},
   note = {${paper.discipline}门刊 · ${paper.manuscript_code}},
-  abstract = {${paper.abstract}}
+  abstract = {${paper.abstract}},
   author = {${authorStr}}
 }`;
 }

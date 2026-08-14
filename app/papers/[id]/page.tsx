@@ -52,7 +52,7 @@ export default async function PaperPage({ params }: { params: Promise<{ id: stri
 
   return (
     <div style={{ maxWidth: 860, margin: "0 auto" }}>
-      {paper.status === "published" && <ViewTally paperId={paper.id} authorId={paper.author_id} />}
+      {paper.status === "published" && <ViewTally paperId={paper.id} />}
 
       <p className="meta" style={{ marginBottom: 8 }}>
         <Link href="/papers" style={{ color: "var(--ink-soft)" }}>← 论文库</Link>
@@ -183,7 +183,7 @@ export default async function PaperPage({ params }: { params: Promise<{ id: stri
       )}
 
       {canDelete && (
-        <form action={deletePaperAction.bind(null, paper.id, paper.author_id)} style={{ marginTop: 18, textAlign: "center" }}>
+        <form action={deletePaperAction.bind(null, paper.id)} style={{ marginTop: 18, textAlign: "center" }}>
           <button className="btn btn-danger" type="submit">撤 稿 焚 文</button>
         </form>
       )}

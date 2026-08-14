@@ -445,8 +445,12 @@ export const userMapper = (row: any): SafeUser => ({
 
 /** 生成稿件编号：SCHOLA-年份-当年序号（如 SCHOLA-2026-0007） */
 export function nextManuscriptCode(year: number): string {
-  const cnt = (
-    db.prepare("SELECT COUNT(*) AS c FROM papers WHERE strftime('%Y', created_at) = ?").get(String(year)) as any
-  ).c;
-  return `SCHOLA-${year}-${String(cnt + 1).padStart(4, "0")}`;
+  const prefix = `SCHOLA-${year}-`;
+  const row = db
+    .prepare(
+      "SELECT MAX(CAST(substr(manuscript_code, ?) AS INTEGER)) AS max_seq FROM papers WHERE manuscript_code GLOB ?",
+    )
+    .get(prefix.length + 1, `${prefix}[0-9]*`) as { max_seq: number | null };
+  const next = (row.max_seq ?? 0) + 1;
+  return `${prefix}${String(next).padStart(4, "0")}`;
 }

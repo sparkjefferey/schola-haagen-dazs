@@ -63,11 +63,11 @@ await page.fill("#p-title", "《论初版之不足》");
 await page.selectOption("#p-disc", "乳脂哲学");
 await page.fill("#p-abs", "这是一篇测试提要。");
 await page.fill("#p-body", "## 一、正文\n\n这是测试正文的完整内容，起码三十个字，好让论文能够顺利入库。\n\n> 引语示例。");
-await page.click("button:has-text('刊 印 入 库')");
+await page.click("button:has-text('投 稿 入 库')");
 await page.waitForURL(/\/papers\/\d+$/);
 await page.waitForTimeout(500);
 check("发文成功", (await page.textContent("h1"))?.includes("初版之不足"));
-check("新稿标示认证中", (await page.textContent("body")).includes("正在掌门认证中"));
+check("新稿标示已收稿", (await page.textContent("body")).includes("已收稿"));
 
 // 8. 管理者登录并放行新稿（掌门认证）
 const ctx = await browser.newContext();
@@ -82,17 +82,21 @@ check("管理者登录进后台", p2.url().includes("/admin"));
 
 await p2.goto(B + "/admin?tab=reviews");
 await p2.waitForTimeout(400);
-const reviewBtn = p2.locator(`button:has-text('放行刊印')`).first();
-check("审稿箱出现待审新稿", (await reviewBtn.count()) > 0);
-await reviewBtn.click();
-await p2.waitForTimeout(1200);
-check("放行成功有回执", p2.url().includes("ok="));
+const reviewRow = p2.locator(`.item:has-text("@${uname}")`).first();
+check("审稿箱出现待审新稿", (await reviewRow.count()) > 0);
+await reviewRow.locator("button:has-text('收稿·送审')").click();
+await p2.waitForTimeout(800);
+await reviewRow.locator("button:has-text('录用')").click();
+await p2.waitForTimeout(800);
+await reviewRow.locator("button:has-text('刊印成典')").click();
+await p2.waitForTimeout(800);
+check("审稿流程完成", (await reviewRow.count()) === 0);
 
 // 9. 论文已刊且作者获认证印
 const paperUrl = page.url();
 await page.goto(paperUrl);
 await page.waitForTimeout(400);
-check("论文已刊出", (await page.textContent("body")).includes("已阅"));
+check("论文已刊出", (await page.textContent("body")).includes("已刊印"));
 await page.goto(B + `/users/${uname}`);
 await page.waitForTimeout(400);
 check("作者获认证学者印", (await page.textContent("body")).includes("认证学者"));

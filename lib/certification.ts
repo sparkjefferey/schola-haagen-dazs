@@ -10,7 +10,8 @@ import { db, userMapper, type SafeUser } from "./db";
 
 /** 每日私信限额（未互证且非管理员）。UTC 零点重置，全站时间戳均 UTC。 */
 export function pmDailyLimit(): number {
-  return Math.max(0, Number(process.env.PM_DAILY_LIMIT ?? "5"));
+  const configured = Number(process.env.PM_DAILY_LIMIT ?? "5");
+  return Number.isFinite(configured) ? Math.max(0, Math.floor(configured)) : 5;
 }
 
 /** 两人是否已互证。 */

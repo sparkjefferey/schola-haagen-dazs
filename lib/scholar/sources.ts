@@ -12,23 +12,19 @@ const MAILTO = process.env.SCHOLAR_MAILTO ?? "schola@example.com";
 const UA = `ScholaHaagenDazs/0.1 (mailto:${MAILTO})`;
 
 // ---------------- 轻量限流（单进程内存，单 VPS 实例 OK）----------------
-const lastCall: Record<string, number> = {};
+const nextCallAt: Record<string, number> = {};
+const FETCH_TIMEOUT_MS = 12_000;
+
 async function throttle(key: string, minIntervalMs: number) {
   const now = Date.now();
-  const last = lastCall[key] ?? 0;
-  const wait = Math.max(0, minIntervalMs - (now - last));
+  const slot = Math.max(now, nextCallAt[key] ?? 0);
+  nextCallAt[key] = slot + minIntervalMs;
+  const wait = slot - now;
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
-  lastCall[key] = Date.now();
 }
 
-// 单源失败不影响整体
-async function guard<T>(p: Promise<T>): Promise<T[]> {
-  try {
-    return [await p];
-  } catch (e) {
-    console.error(`[scholar] 源检索失败:`, (e as Error).message);
-    return [];
-  }
+function sourceFetch(url: URL, init: RequestInit = {}) {
+  return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 }
 
 // ---------------- OpenAlex ----------------
@@ -38,7 +34,7 @@ export async function openAlexSearch(query: string, limit: number): Promise<Pape
   url.searchParams.set("search", query);
   url.searchParams.set("per-page", String(Math.min(limit, 50)));
   url.searchParams.set("mailto", MAILTO);
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await sourceFetch(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`OpenAlex ${res.status}`);
   const data = (await res.json()) as any;
   const works: any[] = data.results ?? [];
@@ -83,7 +79,7 @@ export async function arxivSearch(query: string, limit: number): Promise<PaperIt
   url.searchParams.set("start", "0");
   url.searchParams.set("max_results", String(Math.min(limit, 50)));
   url.searchParams.set("sortBy", "relevance");
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await sourceFetch(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`arXiv ${res.status}`);
   const xml = await res.text();
   return parseArxiv(xml);
@@ -147,7 +143,7 @@ export async function semanticScholarSearch(query: string, limit: number): Promi
     "fields",
     "title,authors,year,abstract,doi,url,citationCount,externalIds,openAccessPdf,venue"
   );
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await sourceFetch(url, { headers: { "User-Agent": UA } });
   if (res.status === 429) throw new Error("Semantic Scholar 限流(429)");
   if (!res.ok) throw new Error(`SemanticScholar ${res.status}`);
   const data = (await res.json()) as any;
@@ -177,7 +173,7 @@ export async function crossrefSearch(query: string, limit: number): Promise<Pape
   url.searchParams.set("query", query);
   url.searchParams.set("rows", String(Math.min(limit, 50)));
   url.searchParams.set("mailto", MAILTO);
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  const res = await sourceFetch(url, { headers: { "User-Agent": UA } });
   if (!res.ok) throw new Error(`Crossref ${res.status}`);
   const data = (await res.json()) as any;
   const items: any[] = data.message?.items ?? [];
@@ -217,7 +213,7 @@ export async function coreSearch(query: string, limit: number): Promise<PaperIte
   const url = new URL("https://api.core.ac.uk/v3/search/works");
   url.searchParams.set("q", query);
   url.searchParams.set("limit", String(Math.min(limit, 50)));
-  const res = await fetch(url, {
+  const res = await sourceFetch(url, {
     headers: { Authorization: `Bearer ${key}`, Accept: "application/json" },
   });
   if (!res.ok) throw new Error(`CORE ${res.status}`);

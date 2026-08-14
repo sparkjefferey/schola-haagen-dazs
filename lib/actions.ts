@@ -12,6 +12,7 @@ import {
   setSessionCookie,
   clearSessionCookie,
   getSessionUser,
+  destroyAllSessions,
   isLocked,
   recordFailedAttempt,
   clearFailedAttempts,
@@ -51,14 +52,14 @@ export async function requireAdmin() {
 export async function registerUser(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim();
   const password = String(formData.get("password") ?? "");
-  const displayName = String(formData.get("display_name") ?? "").trim() || username;
+  const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24) || username;
   const motto = String(formData.get("motto") ?? "").trim().slice(0, 80);
   const role = String(formData.get("role") ?? "scholar") as "admin" | "scholar";
   const invite = String(formData.get("invite") ?? "").trim();
   const roleTab = role === "admin" ? "&tab=admin" : "";
 
   if (!USERNAME_RE.test(username)) redirect(`/register?e=user${roleTab}`);
-  if (password.length < 6) redirect(`/register?e=pass${roleTab}`);
+  if (password.length < 6 || password.length > 256) redirect(`/register?e=pass${roleTab}`);
   if (role !== "admin" && role !== "scholar") redirect("/register?e=user");
 
   const exists = db.prepare("SELECT 1 FROM users WHERE username = ?").get(username);
@@ -91,7 +92,7 @@ export async function registerUser(formData: FormData) {
 }
 
 export async function loginAction(formData: FormData) {
-  const username = String(formData.get("username") ?? "").trim();
+  const username = String(formData.get("username") ?? "").trim().slice(0, 20);
   const password = String(formData.get("password") ?? "");
   const ip = await clientIp();
 
@@ -150,7 +151,7 @@ export async function createThreadAction(formData: FormData) {
   const category = String(formData.get("category") ?? "学术交流");
 
   if (title.length < 4 || title.length > 80) redirect("/forum?e=title");
-  if (content.length < 10) redirect("/forum?e=body");
+  if (content.length < 10 || content.length > 20_000) redirect("/forum?e=body");
   if (!FORUM_CATEGORIES.includes(category as any)) redirect("/forum?e=body");
   if (rateLimited(`t:${user.id}`, 10, 3600_000)) redirect("/forum?e=rate");
 
@@ -166,7 +167,7 @@ export async function replyAction(formData: FormData) {
   const threadId = Number(formData.get("thread_id"));
   const content = String(formData.get("content") ?? "").trim();
   if (!Number.isInteger(threadId)) redirect("/forum");
-  if (content.length < 2) redirect(`/forum/thread/${threadId}?e=short`);
+  if (content.length < 2 || content.length > 10_000) redirect(`/forum/thread/${threadId}?e=short`);
   if (rateLimited(`r:${user.id}`, 30, 3600_000)) redirect(`/forum/thread/${threadId}?e=rate`);
 
   db.prepare("INSERT INTO replies (thread_id, author_id, content) VALUES (?, ?, ?)").run(
@@ -178,19 +179,28 @@ export async function replyAction(formData: FormData) {
   redirect(`/forum/thread/${threadId}`);
 }
 
-export async function deleteThreadAction(threadId: number, authorId: number) {
+export async function deleteThreadAction(threadId: number) {
   const user = await requireLogin();
-  if (user.role !== "admin" && user.id !== authorId) fail("无权删除");
+  if (!Number.isInteger(threadId) || threadId <= 0) fail("论题编号无效");
+  const thread = db.prepare("SELECT author_id FROM threads WHERE id = ?").get(threadId) as
+    | { author_id: number }
+    | undefined;
+  if (!thread) fail("论题不存在");
+  if (user.role !== "admin" && user.id !== thread.author_id) fail("无权删除");
   db.prepare("DELETE FROM threads WHERE id = ?").run(threadId);
   logAudit(user.id, "thread.delete", `thread#${threadId}`, "删除论题");
   revalidatePath("/forum");
   redirect("/forum");
 }
 
-export async function deleteReplyAction(replyId: number, authorId: number) {
+export async function deleteReplyAction(replyId: number) {
   const user = await requireLogin();
-  if (user.role !== "admin" && user.id !== authorId) fail("无权删除");
-  const row = db.prepare("SELECT thread_id FROM replies WHERE id = ?").get(replyId) as any;
+  if (!Number.isInteger(replyId) || replyId <= 0) fail("回复编号无效");
+  const row = db.prepare("SELECT thread_id, author_id FROM replies WHERE id = ?").get(replyId) as
+    | { thread_id: number; author_id: number }
+    | undefined;
+  if (!row) fail("回复不存在");
+  if (user.role !== "admin" && user.id !== row.author_id) fail("无权删除");
   db.prepare("DELETE FROM replies WHERE id = ?").run(replyId);
   logAudit(user.id, "reply.delete", `reply#${replyId}`, "删除辩答");
   revalidatePath(`/forum/thread/${row.thread_id}`);
@@ -198,7 +208,10 @@ export async function deleteReplyAction(replyId: number, authorId: number) {
 
 // ==================== 论文 / 掌门认证（专业期刊流水线） ====================
 
-const COOL_DOWN_HOURS = Number(process.env.COOL_DOWN_HOURS ?? "24");
+const configuredCoolDownHours = Number(process.env.COOL_DOWN_HOURS ?? "24");
+const COOL_DOWN_HOURS = Number.isFinite(configuredCoolDownHours)
+  ? Math.max(0, configuredCoolDownHours)
+  : 24;
 
 interface RawAuthor {
   display_name: string;
@@ -217,6 +230,7 @@ function parseAuthors(json: string, fallback: RawAuthor): RawAuthor[] {
   }
   if (!Array.isArray(arr)) arr = [];
   const clean = arr
+    .slice(0, 50)
     .map((a) => ({
       display_name: String(a?.display_name ?? "").trim().slice(0, 60),
       affiliation: String(a?.affiliation ?? "").trim().slice(0, 160),
@@ -259,7 +273,7 @@ export async function createPaperAction(formData: FormData) {
   if (title.length < 4 || title.length > 120) redirect("/papers/new?e=title");
   if (!DISCIPLINES.includes(discipline as any)) redirect("/papers/new?e=title");
   if (abstract.length > 600) redirect("/papers/new?e=abstract");
-  if (content.length < 30) redirect("/papers/new?e=body");
+  if (content.length < 30 || content.length > 200_000) redirect("/papers/new?e=body");
 
   const joined = new Date(user.created_at.endsWith("Z") ? user.created_at : user.created_at + "Z").getTime();
   if (Date.now() - joined < COOL_DOWN_HOURS * 3600_000 && !user.endorsed) {
@@ -329,7 +343,7 @@ export async function editPaperAction(paperId: number, formData: FormData) {
   if (title.length < 4 || title.length > 120) fail("论著标题须在 4–120 字之间。");
   if (!DISCIPLINES.includes(discipline as any)) fail("学科门类无效。");
   if (abstract.length > 600) fail("提要过长（限 600 字）。");
-  if (content.length < 30) fail("正文至少 30 字。");
+  if (content.length < 30 || content.length > 200_000) fail("正文须在 30–200000 字之间。");
 
   const authors = parseAuthors(authorsJson, { display_name: user.display_name });
   const tx = db.transaction(() => {
@@ -363,11 +377,15 @@ export async function submitRevisionAction(paperId: number) {
   redirect(`/papers/${paperId}`);
 }
 
-export async function deletePaperAction(paperId: number, authorId: number) {
+export async function deletePaperAction(paperId: number) {
   const user = await requireLogin();
-  if (user.role !== "admin" && user.id !== authorId) fail("无权撤稿");
-  const row = db.prepare("SELECT status FROM papers WHERE id = ?").get(paperId) as any;
-  if (row?.status !== "published") fail("未刊文稿不须撤取，可在个人名册中处置");
+  if (!Number.isInteger(paperId) || paperId <= 0) fail("论文编号无效");
+  const row = db.prepare("SELECT author_id, status FROM papers WHERE id = ?").get(paperId) as
+    | { author_id: number; status: string }
+    | undefined;
+  if (!row) fail("论文不存在");
+  if (user.role !== "admin" && user.id !== row.author_id) fail("无权撤稿");
+  if (row.status !== "published") fail("未刊文稿不须撤取，可在个人名册中处置");
   db.prepare("DELETE FROM papers WHERE id = ?").run(paperId);
   logAudit(user.id, "paper.delete", `paper#${paperId}`, "撤稿");
   revalidatePath("/papers");
@@ -475,12 +493,15 @@ export async function rejectPaperAction(paperId: number, reason: string) {
   revalidatePath("/admin");
 }
 
-export async function incrementViewsAction(paperId: number, authorId: number) {
+export async function incrementViewsAction(paperId: number) {
   const user = await getSessionUser();
-  if (!user) return;
-  if (user.id === authorId) return;
-  db.prepare("UPDATE papers SET views = views + 1 WHERE id = ?").run(paperId);
-  revalidatePath(`/papers/${paperId}`);
+  if (!user || !Number.isInteger(paperId) || paperId <= 0) return;
+  const result = db
+    .prepare(
+      "UPDATE papers SET views = views + 1 WHERE id = ? AND status = 'published' AND author_id <> ?",
+    )
+    .run(paperId, user.id);
+  if (result.changes > 0) revalidatePath(`/papers/${paperId}`);
 }
 
 // ==================== 成员处置 ====================
@@ -499,6 +520,7 @@ export async function setUserStatusAction(userId: number, status: "active" | "ba
     status === "active" ? "" : reasonCleaned,
     userId,
   );
+  if (status !== "active") destroyAllSessions(userId);
   logAudit(actor.id, `user.${status}`, `@${target.username}`, reasonCleaned || "恢复在籍");
   revalidatePath("/admin");
 }
@@ -555,7 +577,7 @@ export async function changePasswordAction(formData: FormData) {
   if (!row || !verifyPassword(current, row.password_hash)) {
     redirect(`/users/${me.username}?e=pwd`);
   }
-  if (next.length < 6) redirect(`/users/${me.username}?e=pwdlen`);
+  if (next.length < 6 || next.length > 256) redirect(`/users/${me.username}?e=pwdlen`);
   if (next === current) redirect(`/users/${me.username}?e=pwdsame`);
 
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(next), me.id);
@@ -753,6 +775,11 @@ export async function setContentAction(formData: FormData) {
 
 export async function createReportAction(kind: "thread" | "reply" | "paper", targetId: number, reason: string) {
   const user = await requireLogin();
+  const targetTables = { thread: "threads", reply: "replies", paper: "papers" } as const;
+  const table = targetTables[kind];
+  if (!table || !Number.isInteger(targetId) || targetId <= 0) fail("检举目标无效");
+  const target = db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(targetId);
+  if (!target) fail("检举目标不存在");
   const reasonCleaned = (reason || "").trim().slice(0, 200);
   if (!reasonCleaned) fail("检举须附理由");
   const exists = db
@@ -768,9 +795,12 @@ export async function createReportAction(kind: "thread" | "reply" | "paper", tar
 
 export async function resolveReportAction(reportId: number, action: "resolve" | "dismiss") {
   const actor = await requireAdmin();
-  db.prepare(
+  if (!Number.isInteger(reportId) || reportId <= 0) fail("检举编号无效");
+  if (action !== "resolve" && action !== "dismiss") fail("处置方式无效");
+  const result = db.prepare(
     "UPDATE reports SET status = 'resolved', resolved_by = ?, resolved_at = ? WHERE id = ? AND status = 'open'",
   ).run(actor.id, new Date().toISOString(), reportId);
+  if (result.changes === 0) fail("检举不存在或已经处置");
   logAudit(actor.id, `report.${action}`, `report#${reportId}`, action === "dismiss" ? "驳回其检举" : "检举已了");
   redirect("/admin?tab=reports&ok=检举已处");
 }
