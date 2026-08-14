@@ -108,13 +108,14 @@ export async function loginAction(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const ip = await clientIp();
 
-  if (isLocked(ip, username)) {
+  if (isLocked(ip, username) || globalUserLocked(username)) {
     redirect("/login?e=locked");
   }
 
   const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
   if (!row || !verifyPassword(password, row.password_hash)) {
     recordFailedAttempt(ip, username);
+    recordGlobalUserFail(username);
     redirect("/login?e=bad");
   }
   clearFailedAttempts(ip, username);
