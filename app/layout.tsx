@@ -21,10 +21,9 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
-  const raw = await getSessionUser();
+  const [raw, h] = await Promise.all([getSessionUser(), headers()]);
   const user = raw?.status === "active" ? raw : null;
   if (raw && raw.status !== "active") {
-    const h = await headers();
     const pathname = h.get("x-pathname") || "";
     if (!pathname.startsWith("/banned")) {
       redirect(`/banned?u=${encodeURIComponent(raw.username)}`);
@@ -34,7 +33,6 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const announcement = getAnnouncement();
 
   // 按网址给每页分配主题色（古典手抄本调色板），打破全站一片栗红
-  const h = await headers();
   const pathname = h.get("x-pathname") || "/";
   let theme = "home";
   if (pathname === "/" || pathname.startsWith("/home")) theme = "home";
@@ -48,14 +46,14 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   else if (pathname.startsWith("/login") || pathname.startsWith("/register") || pathname.startsWith("/banned")) theme = "auth";
 
   return (
-    <html lang="zh-CN">
+    <html lang="zh-CN" data-scroll-behavior="smooth">
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
       </head>
       <body data-theme={theme}>
         <div className="greek-arch-bg" aria-hidden />
         <header>
-<div className="sitename-band">
+          <div className="sitename-band">
             <MeanderBand />
             <div className="wordmark-wrap">
               <LaurelWreath size={46} color="rgba(217,189,124,0.55)" />
@@ -68,23 +66,23 @@ export default async function RootLayout({ children }: { children: React.ReactNo
           </div>
           <nav className="nav">
             <div className="nav-inner">
-              <a className="nitem" href="/">首府之户</a>
-              <a className="nitem" href="/about">学派志</a>
-              <a className="nitem" href="/forum">学术论坛</a>
-              <a className="nitem" href="/papers">论文库</a>
-              <a className="nitem" href="/scholar">学林检索</a>
-              <a className="nitem" href="/ranking">作者学榜</a>
+              <Link className="nitem" href="/">首府之户</Link>
+              <Link className="nitem" href="/about">学派志</Link>
+              <Link className="nitem" href="/forum">学术论坛</Link>
+              <Link className="nitem" href="/papers">论文库</Link>
+              <Link className="nitem" href="/scholar">学林检索</Link>
+              <Link className="nitem" href="/ranking">作者学榜</Link>
               <span className="spacer" />
               {user ? (
                 <>
                   <span className="whoami">
-                    <a href={`/users/${user.username}`} style={{ color: "var(--maroon)" }}>
+                    <Link href={`/users/${user.username}`} style={{ color: "var(--maroon)" }}>
                       {user.display_name}
-                    </a>
+                    </Link>
                     {user.endorsed === 1 && <span className="badge">认证学者</span>}
                     {user.role === "admin" && <span className="badge badge-admin">管理者</span>}
                     <MessageBell />
-                    {user.role === "admin" && <a className="nitem" href="/admin">燕京阁</a>}
+                    {user.role === "admin" && <Link className="nitem" href="/admin">燕京阁</Link>}
                   </span>
                   <form action={logoutAction} className="inline-form">
                     <button type="submit" className="btn btn-sm">登出</button>
@@ -92,8 +90,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 </>
               ) : (
                 <>
-                  <a className="nitem" href="/login">登学</a>
-                  <a className="btn btn-sm" style={{ marginRight: 12 }} href="/register">入学派</a>
+                  <Link className="nitem" href="/login">登学</Link>
+                  <Link className="btn btn-sm" style={{ marginRight: 12 }} href="/register">入学派</Link>
                 </>
               )}
             </div>
@@ -130,11 +128,11 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Amphora size={34} />
           </div>
           <div className="foot-links">
-            <a href="/about">学派志</a>
-            <a href="/forum">论坛</a>
-            <a href="/papers">论文库</a>
-            <a href="/scholar">学林检索</a>
-            <a href="/ranking">学榜</a>
+            <Link href="/about">学派志</Link>
+            <Link href="/forum">论坛</Link>
+            <Link href="/papers">论文库</Link>
+            <Link href="/scholar">学林检索</Link>
+            <Link href="/ranking">学榜</Link>
           </div>
           <div className="foot-motto">IN LACTE · VERITAS</div>
           <div className="foot-sign">Anno MMXXIV · Fundata in Lacte</div>

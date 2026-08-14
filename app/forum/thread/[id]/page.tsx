@@ -51,7 +51,7 @@ export default async function ThreadPage({
             <div className="meta">{formatDate(thread.created_at)} · 主帖</div>
           </div>
           {canDelete(thread.author_id) && (
-            <form action={deleteThreadAction.bind(null, thread.id, thread.author_id)} style={{ marginLeft: "auto" }}>
+            <form action={deleteThreadAction.bind(null, thread.id)} style={{ marginLeft: "auto" }}>
               <button className="btn btn-danger" type="submit">焚帖</button>
             </form>
           )}
@@ -82,7 +82,7 @@ export default async function ThreadPage({
               <span className="meta" style={{ marginLeft: 10 }}>{timeAgo(r.created_at)}</span>
             </div>
             {canDelete(r.author_id) && (
-              <form action={deleteReplyAction.bind(null, r.id, r.author_id)} style={{ marginLeft: "auto" }}>
+              <form action={deleteReplyAction.bind(null, r.id)} style={{ marginLeft: "auto" }}>
                 <button className="btn btn-danger" type="submit">删</button>
               </form>
             )}
