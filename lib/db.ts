@@ -154,6 +154,15 @@ export interface Message {
   created_at: string;
 }
 
+export interface Certification {
+  id: number;
+  requester_id: number;
+  responder_id: number;
+  status: "pending" | "accepted" | "declined";
+  created_at: string;
+  responded_at: string | null;
+}
+
 export const FORUM_CATEGORIES = [
   "学术交流",
   "冷食哲学",
@@ -289,6 +298,19 @@ export function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id, read);
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(sender_id, receiver_id, created_at);
+
+    -- 同侪互证：类似互相关注的成对关系。两人互证（存在 accepted 的 (A,B) 或 (B,A)）方可无限私信。
+    CREATE TABLE IF NOT EXISTS certifications (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      responder_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      status       TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','accepted','declined')),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now')),
+      responded_at TEXT,
+      UNIQUE (requester_id, responder_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_cert_responder ON certifications(responder_id, status);
+    CREATE INDEX IF NOT EXISTS idx_cert_requester ON certifications(requester_id, status);
 
     CREATE TABLE IF NOT EXISTS login_attempts (
       ip         TEXT NOT NULL,

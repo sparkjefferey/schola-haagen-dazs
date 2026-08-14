@@ -2,6 +2,13 @@ import Link from "next/link";
 import { requireLogin, sendMessageAction } from "@/lib/actions";
 import { getConversations, getThread, getSystemMessages } from "@/lib/messages";
 import { db } from "@/lib/db";
+import {
+  listContacts,
+  listPendingCertRequests,
+  isMutuallyCertified,
+  pmQuotaUsed,
+  pmDailyLimit,
+} from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
 import { timeAgo } from "@/lib/format";
 
@@ -17,11 +24,16 @@ export default async function MessagesPage({
   const withParam = sp.with ?? "";
   const isSystem = withParam === "system";
 
-  const activeUsers = db
-    .prepare(
-      "SELECT id, username, display_name, role, endorsed FROM users WHERE status='active' AND id <> ? ORDER BY display_name",
-    )
-    .all(me.id) as any[];
+  // 名单门禁：管理员可见全员；其余只见与自己互证的同侪（不直接展示所有人 ID）
+  const isAdmin = me.role === "admin";
+  const activeUsers = isAdmin
+    ? (db
+        .prepare(
+          "SELECT id, username, display_name, role, endorsed FROM users WHERE status='active' AND id <> ? ORDER BY display_name",
+        )
+        .all(me.id) as any[])
+    : listContacts(me.id);
+  const pendingCerts = isAdmin ? [] : listPendingCertRequests(me.id);
 
   const systemUnread = (
     db
@@ -54,6 +66,10 @@ export default async function MessagesPage({
   const sysMsgs = isSystem ? getSystemMessages(me.id) : [];
   const conversations = getConversations(me.id);
 
+  const unlimitedWithOther =
+    !!other && (isAdmin || isMutuallyCertified(me.id, other.id));
+  const remainingQuota = unlimitedWithOther ? null : Math.max(0, pmDailyLimit() - pmQuotaUsed(me.id));
+
   return (
     <div className="msg-layout">
       <aside className="msg-side">
@@ -75,9 +91,32 @@ export default async function MessagesPage({
 
         <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
 
+        {pendingCerts.length > 0 && (
+          <div
+            className="card"
+            style={{
+              padding: "10px 12px",
+              marginBottom: 10,
+              borderLeft: "3px solid var(--gold-deep)",
+              fontSize: 13,
+            }}
+          >
+            <b>同侪互证待你回应：</b>
+            {pendingCerts.map((p, i) => (
+              <span key={p.id}>
+                {i > 0 && "、"}
+                <Link href={`/users/${p.username}`} style={{ color: "var(--maroon-deep)", fontWeight: 600 }}>
+                  {p.display_name}
+                </Link>
+              </span>
+            ))}
+            <span className="meta"> 赴其名册页应允后即可无限私信。</span>
+          </div>
+        )}
+
         {conversations.length === 0 && (
           <p className="empty-note" style={{ padding: "12px 6px", fontSize: 13 }}>
-            尚无私聊。从下方「新私聊」挑选同侪交谈。
+            尚无私聊。可从下方与已互证同侪交谈，或赴他人名册页请求互证。
           </p>
         )}
         {conversations.map((c) => {
@@ -113,6 +152,11 @@ export default async function MessagesPage({
                 {u.display_name}
               </Link>
             ))}
+            {activeUsers.length === 0 && !isAdmin && (
+              <p className="empty-note" style={{ padding: "8px 4px", fontSize: 12 }}>
+                尚无互证同侪。赴他人名册页发起互证后，即可在此无限私信。
+              </p>
+            )}
           </div>
         </details>
       </aside>
@@ -121,6 +165,11 @@ export default async function MessagesPage({
         {sp.e === "empty" && <div className="msg-note err">私信内容不可为空。</div>}
         {sp.e === "self" && <div className="msg-note err">不能给自己发私信。</div>}
         {sp.e === "nouser" && <div className="msg-note err">该用户不存在或已离馆。</div>}
+        {sp.e === "limit" && (
+          <div className="msg-note err">
+            今日未互证私信已达限额（{pmDailyLimit()} 条）。赴对方名册页完成同侪互证后可无限畅谈。
+          </div>
+        )}
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
 
         {isSystem ? (
@@ -156,6 +205,15 @@ export default async function MessagesPage({
                 </div>
               ))}
             </div>
+            {other && !unlimitedWithOther && (
+              <p className="meta" style={{ padding: "6px 12px", fontSize: 12, textAlign: "center" }}>
+                今日剩余未互证私信 <b>{remainingQuota}</b> 条。与 {other.display_name} 完成
+                <Link href={`/users/${other.username}`} style={{ color: "var(--maroon-deep)" }}>
+                  同侪互证
+                </Link>
+                后可无限畅谈。
+              </p>
+            )}
             <form action={sendMessageAction} className="chat-input">
               <input type="hidden" name="receiver_id" value={other.id} />
               <textarea
