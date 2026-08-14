@@ -7,11 +7,8 @@ data
 *.db-shm
 *.db-wal
 .workbuddy
-generated-images
-*.png
-*.jpg
-*.jpeg
-*.gif
+# 设计参考图不参与运行；public/ 下的页面纹理必须保留。
+assets/design-refs
 .git
 .env
 .env.local

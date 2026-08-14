@@ -170,12 +170,10 @@ export function StatusButtons({
 export function DeleteButtons({
   kind,
   id,
-  authorId,
   label,
 }: {
   kind: "user" | "paper" | "thread";
   id: number;
-  authorId?: number;
   label: string;
 }) {
   const router = useRouter();
@@ -189,8 +187,8 @@ export function DeleteButtons({
     try {
       const actions = await import("@/lib/actions");
       if (kind === "user") await actions.deleteUserAction(id);
-      else if (kind === "paper") await actions.deletePaperAction(id, authorId!);
-      else await actions.deleteThreadAction(id, authorId!);
+      else if (kind === "paper") await actions.deletePaperAction(id);
+      else await actions.deleteThreadAction(id);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "操作失败");
