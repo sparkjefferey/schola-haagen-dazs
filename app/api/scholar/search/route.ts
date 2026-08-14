@@ -12,7 +12,6 @@ const MAX_CACHE_ENTRIES = 200;
 const MAX_QUERY_LENGTH = 200;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const CLIENT_RATE_LIMIT = positiveInt(process.env.SCHOLAR_CLIENT_RATE_LIMIT, 20);
-const GLOBAL_RATE_LIMIT = positiveInt(process.env.SCHOLAR_GLOBAL_RATE_LIMIT, 100);
 
 export const dynamic = "force-dynamic";
 
@@ -35,10 +34,6 @@ export async function GET(req: NextRequest) {
   if (yearFrom === undefined || yearTo === undefined || (yearFrom && yearTo && yearFrom > yearTo)) {
     return NextResponse.json({ error: "年份范围无效" }, { status: 400 });
   }
-
-  // 先扣全站额度，再建客户端桶：即使来客不断伪造 IP，每个窗口最多也只会新增 GLOBAL_RATE_LIMIT 个桶。
-  const globalRate = consumeFixedWindow("scholar:global", GLOBAL_RATE_LIMIT, RATE_WINDOW_MS);
-  if (globalRate.limited) return rateLimitedResponse(globalRate);
 
   const clientId = rateLimitFingerprint(clientAddress(req));
   const clientRate = consumeFixedWindow(`scholar:client:${clientId}`, CLIENT_RATE_LIMIT, RATE_WINDOW_MS);

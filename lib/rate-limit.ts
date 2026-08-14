@@ -51,7 +51,7 @@ export function consumeFixedWindow(
   if (!Number.isInteger(limit) || limit <= 0) throw new Error("rate limit 必须为正整数");
   if (!Number.isInteger(windowMs) || windowMs <= 0) throw new Error("rate limit 窗口必须为正整数");
 
-  // 低频清理过期桶，避免长期积累；先检查全站桶时执行，可限制伪造大量 IP 造成的行数增长。
+  // 低频清理过期桶，避免长期积累过期的客户端记录。
   if (now - lastCleanupAt >= windowMs) {
     db.prepare("DELETE FROM rate_limit_windows WHERE window_end <= ?").run(now);
     lastCleanupAt = now;
