@@ -319,6 +319,14 @@ export function initSchema() {
       window_end TEXT NOT NULL,
       PRIMARY KEY (ip, username)
     );
+
+    -- 通用固定窗口限流。存入 SQLite，避免进程重启或重新部署后计数清零。
+    CREATE TABLE IF NOT EXISTS rate_limit_windows (
+      key        TEXT PRIMARY KEY,
+      count      INTEGER NOT NULL DEFAULT 1,
+      window_end INTEGER NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rate_limit_window_end ON rate_limit_windows(window_end);
   `);
 
   // ---- 轻量迁移（老库补列） ----

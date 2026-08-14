@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { searchScholar } from "@/lib/scholar/sources";
 import { ALL_SOURCES, SourceKey } from "@/lib/scholar/types";
+import { consumeFixedWindow, rateLimitFingerprint, type RateLimitResult } from "@/lib/rate-limit";
 
 const VALID = new Set<string>(ALL_SOURCES);
 
@@ -9,6 +10,9 @@ const cache = new Map<string, { ts: number; data: unknown }>();
 const TTL = 5 * 60 * 1000;
 const MAX_CACHE_ENTRIES = 200;
 const MAX_QUERY_LENGTH = 200;
+const RATE_WINDOW_MS = 10 * 60 * 1000;
+const CLIENT_RATE_LIMIT = positiveInt(process.env.SCHOLAR_CLIENT_RATE_LIMIT, 20);
+const GLOBAL_RATE_LIMIT = positiveInt(process.env.SCHOLAR_GLOBAL_RATE_LIMIT, 100);
 
 export const dynamic = "force-dynamic";
 
@@ -32,6 +36,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "年份范围无效" }, { status: 400 });
   }
 
+  // 先扣全站额度，再建客户端桶：即使来客不断伪造 IP，每个窗口最多也只会新增 GLOBAL_RATE_LIMIT 个桶。
+  const globalRate = consumeFixedWindow("scholar:global", GLOBAL_RATE_LIMIT, RATE_WINDOW_MS);
+  if (globalRate.limited) return rateLimitedResponse(globalRate);
+
+  const clientId = rateLimitFingerprint(clientAddress(req));
+  const clientRate = consumeFixedWindow(`scholar:client:${clientId}`, CLIENT_RATE_LIMIT, RATE_WINDOW_MS);
+  if (clientRate.limited) return rateLimitedResponse(clientRate);
+
   const key = JSON.stringify({ q, sources, limit, yearFrom, yearTo });
   const now = Date.now();
   for (const [cacheKey, entry] of cache) {
@@ -40,7 +52,7 @@ export async function GET(req: NextRequest) {
   const hit = cache.get(key);
   if (hit) {
     const data = hit.data as any[];
-    return NextResponse.json({ query: q, cached: true, total: data.length, papers: data });
+    return searchResponse({ query: q, cached: true, total: data.length, papers: data }, clientRate);
   }
 
   const papers = await searchScholar({
@@ -55,7 +67,48 @@ export async function GET(req: NextRequest) {
     if (oldestKey) cache.delete(oldestKey);
   }
   cache.set(key, { ts: Date.now(), data: papers });
-  return NextResponse.json({ query: q, cached: false, total: papers.length, papers });
+  return searchResponse({ query: q, cached: false, total: papers.length, papers }, clientRate);
+}
+
+function clientAddress(req: NextRequest): string {
+  return (
+    req.headers.get("x-client-ip") ||
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
+    req.headers.get("x-real-ip") ||
+    "unknown"
+  );
+}
+
+function rateHeaders(rate: RateLimitResult): Record<string, string> {
+  return {
+    "Cache-Control": "no-store",
+    "X-RateLimit-Limit": String(rate.limit),
+    "X-RateLimit-Remaining": String(rate.remaining),
+    "X-RateLimit-Reset": String(Math.ceil(rate.resetAt / 1000)),
+  };
+}
+
+function searchResponse(body: unknown, rate: RateLimitResult) {
+  return NextResponse.json(body, { headers: rateHeaders(rate) });
+}
+
+function rateLimitedResponse(rate: RateLimitResult) {
+  const retryAfter = Math.max(1, Math.ceil((rate.resetAt - Date.now()) / 1000));
+  return NextResponse.json(
+    {
+      error: `检索过于频繁，请在约 ${Math.ceil(retryAfter / 60)} 分钟后再试。`,
+      retryAfter,
+    },
+    {
+      status: 429,
+      headers: { ...rateHeaders(rate), "Retry-After": String(retryAfter) },
+    },
+  );
+}
+
+function positiveInt(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
 function parseYear(value: string | null): number | null | undefined {
