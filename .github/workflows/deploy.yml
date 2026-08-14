@@ -1,0 +1,28 @@
+name: Auto Deploy
+
+# 触发条件：
+#   1) 有人 push 到 main 分支（你或朋友改完代码提交即自动上线）
+#   2) 也可在 GitHub → Actions → 本工作流 手动点 "Run workflow" 触发
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: 通过 SSH 登录服务器并部署
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_KEY }}
+          port: 22
+          script_stop: true
+          script: |
+            cd /root/schola-haagen-dazs
+            git fetch origin
+            git reset --hard origin/main
+            bash update.sh
