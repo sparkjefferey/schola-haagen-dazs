@@ -7,3 +7,5 @@ data/
 .env.local
 .DS_Store
 .workbuddy/
+# 部署时由 update.sh 自动生成，记录线上 commit，不应入库
+public/version.json

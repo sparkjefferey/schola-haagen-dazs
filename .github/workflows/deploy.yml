@@ -14,7 +14,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: 通过 SSH 登录服务器并部署
-        uses: appleboy/ssh-action@v1.0.3
+        # 固定到完整 commit SHA（对应 v1.0.3），避免第三方 Action 被篡改后自动拉取恶意版本
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
         with:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}

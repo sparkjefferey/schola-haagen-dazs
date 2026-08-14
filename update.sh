@@ -18,6 +18,16 @@ else
   echo ">> 不是 git 仓库，跳过 git pull（请确认已手动更新了代码文件）"
 fi
 
+echo ">> 记录部署版本信息（供 /version 页面确认线上实际提交）..."
+mkdir -p public
+cat > public/version.json <<EOF
+{
+  "commit": "$(git rev-parse HEAD 2>/dev/null || echo unknown)",
+  "ref": "$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)",
+  "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
+
 echo ">> 重新构建并重启容器..."
 docker compose build
 docker compose up -d

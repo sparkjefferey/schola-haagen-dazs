@@ -133,6 +133,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
             <Link href="/papers">论文库</Link>
             <Link href="/scholar">学林检索</Link>
             <Link href="/ranking">学榜</Link>
+            <Link href="/version">版本</Link>
           </div>
           <div className="foot-motto">IN LACTE · VERITAS</div>
           <div className="foot-sign">Anno MMXXIV · Fundata in Lacte</div>
