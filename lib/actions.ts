@@ -30,8 +30,14 @@ function fail(message: string): never {
 
 async function clientIp(): Promise<string> {
   const h = await headers();
-  const fwd = h.get("x-forwarded-for");
-  return (fwd ? fwd.split(",")[0].trim() : h.get("x-real-ip")) || "local";
+  // middleware 已注入真实 TCP 客户端 IP（直连不可伪造），优先采用；
+  // 将来接入可信反代（Cloudflare/Caddy）后，再改为优先信任 x-forwarded-for。
+  return (
+    h.get("x-client-ip") ||
+    h.get("x-forwarded-for")?.split(",")[0].trim() ||
+    h.get("x-real-ip") ||
+    "local"
+  );
 }
 
 export async function requireLogin() {
@@ -61,6 +67,12 @@ export async function registerUser(formData: FormData) {
   if (!USERNAME_RE.test(username)) redirect(`/register?e=user${roleTab}`);
   if (password.length < 6 || password.length > 256) redirect(`/register?e=pass${roleTab}`);
   if (role !== "admin" && role !== "scholar") redirect("/register?e=user");
+
+  // 防恶意批量注册：全局兜底（挡多IP僵尸网络）+ 单IP（挡单点猛刷）。
+  // 小众学术站正常注册极少，每 10 分钟全局 8 个、单 IP 3 个足够，不会误伤真人。
+  const ip = await clientIp();
+  if (rateLimited("reg:global", 8, 600_000)) redirect(`/register?e=regrate${roleTab}`);
+  if (rateLimited(`reg:${ip}`, 3, 600_000)) redirect(`/register?e=regrate${roleTab}`);
 
   const exists = db.prepare("SELECT 1 FROM users WHERE username = ?").get(username);
   if (exists) redirect(`/register?e=taken${roleTab}`);

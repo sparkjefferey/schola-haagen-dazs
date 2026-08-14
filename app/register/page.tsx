@@ -9,6 +9,7 @@ const REGISTER_ERRORS: Record<string, string> = {
   pass: "密码至少 6 位。",
   taken: "该雅号已被他人先行注册，请另起一名。",
   invite: "管理者的邀请函无效、已用或已作废。",
+  regrate: "注册过于频繁，已触发防刷限制。请稍候十分钟再试，或联系管理者。",
 };
 
 export default async function RegisterPage({
