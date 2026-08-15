@@ -425,15 +425,34 @@ export function initSchema() {
     db.exec("DROP TABLE login_attempts");
   }
 
-  // 创始人归一化：历史曾因列默认值异常导致全员 root=1（青衫事件暴露），
-  // 此处强制收敛为「全站仅有最早注册者（最小 id）一位 root」——
-  // 既修复存量错误，也确保「不可被封禁/删除」的保护只作用于真正的创始掌门，
-  // 使后台封禁/降级/删除对所有其他成员（含攻击者）都能正常生效。
-  db.prepare("UPDATE users SET root = 0 WHERE id != (SELECT MIN(id) FROM users)").run();
-  const hasFounder = (db.prepare("SELECT COUNT(*) AS c FROM users WHERE root = 1").get() as { c: number }).c > 0;
-  if (!hasFounder) {
-    db.prepare("UPDATE users SET root = 1 WHERE id = (SELECT MIN(id) FROM users)").run();
-  }
+  // 创始人归一化：历史曾因列默认值异常导致全员 root=1（青衫事件暴露）。
+  // 优先锁定 rector；老库没有 rector 时才退回最早注册者。修复与唯一索引在
+  // 同一事务内完成，避免部署过程中短暂出现多个受保护账号。
+  const repairSingleFounder = db.transaction(() => {
+    const founder = db.prepare(`
+      SELECT id
+      FROM users
+      ORDER BY CASE WHEN username = 'rector' THEN 0 ELSE 1 END, id ASC
+      LIMIT 1
+    `).get() as { id: number } | undefined;
+
+    if (!founder) {
+      db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_root ON users(root) WHERE root = 1");
+      return;
+    }
+
+    const cleared = db.prepare("UPDATE users SET root = 0 WHERE id != ? AND root != 0").run(founder.id);
+    const restored = db.prepare("UPDATE users SET root = 1, role = 'admin' WHERE id = ? AND (root != 1 OR role != 'admin')").run(founder.id);
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_single_root ON users(root) WHERE root = 1");
+
+    if (cleared.changes > 0 || restored.changes > 0) {
+      db.prepare(`
+        INSERT INTO audit_log (actor_id, action, target, detail)
+        VALUES (NULL, 'security.root_repair', 'users', ?)
+      `).run(`清除 ${cleared.changes} 个多余始祖标记，恢复唯一始祖 user#${founder.id}`);
+    }
+  });
+  repairSingleFounder();
 }
 
 initSchema();
