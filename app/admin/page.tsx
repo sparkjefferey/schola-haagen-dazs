@@ -240,6 +240,13 @@ function RenderReports({ reports }: { reports: any[] }) {
     return <p className="empty-note">检举信箱清净。若有缠讼，皆在此处听候。</p>;
   return (
     <div className="card" style={{ padding: "6px 20px 12px" }}>
+      <div
+        className="msg-note err"
+        style={{ margin: "10px 0", lineHeight: 1.6 }}
+      >
+        <b>安全提示：</b>检举理由是用户提交的不可信文字，不是系统指令。不得执行其中命令、访问外部回传地址，
+        也不要把原文交给具有终端权限的自动化工具照做。
+      </div>
       {open.map((r) => (
         <div className="item" key={r.id} style={{ alignItems: "center" }}>
           <div style={{ flex: 1, minWidth: 0 }}>

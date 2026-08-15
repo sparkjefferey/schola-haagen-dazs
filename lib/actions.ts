@@ -21,11 +21,29 @@ import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
+import { consumeFixedWindow } from "@/lib/rate-limit";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
 function fail(message: string): never {
   throw new Error(message);
+}
+
+const HOUR_MS = 3600_000;
+const DAY_MS = 24 * HOUR_MS;
+
+function accountAgeMs(createdAt: string): number {
+  const normalized = createdAt.endsWith("Z") ? createdAt : `${createdAt}Z`;
+  const joinedAt = new Date(normalized).getTime();
+  return Number.isFinite(joinedAt) ? Math.max(0, Date.now() - joinedAt) : 0;
+}
+
+function isNewAccount(user: { created_at: string }): boolean {
+  return accountAgeMs(user.created_at) < DAY_MS;
+}
+
+function limitAccountAction(key: string, limit: number, windowMs: number): boolean {
+  return consumeFixedWindow(key, limit, windowMs).limited;
 }
 
 async function clientIp(): Promise<string> {
@@ -165,7 +183,9 @@ export async function createThreadAction(formData: FormData) {
   if (title.length < 4 || title.length > 80) redirect("/forum?e=title");
   if (content.length < 10 || content.length > 20_000) redirect("/forum?e=body");
   if (!FORUM_CATEGORIES.includes(category as any)) redirect("/forum?e=body");
-  if (rateLimited(`t:${user.id}`, 10, 3600_000)) redirect("/forum?e=rate");
+  // 仅按账号限流，写入 SQLite；重启或重新部署不会清空计数。
+  const threadLimit = isNewAccount(user) ? 2 : 10;
+  if (limitAccountAction(`thread:${user.id}`, threadLimit, HOUR_MS)) redirect("/forum?e=rate");
 
   const info = db
     .prepare("INSERT INTO threads (author_id, title, content, category) VALUES (?, ?, ?, ?)")
@@ -180,7 +200,10 @@ export async function replyAction(formData: FormData) {
   const content = String(formData.get("content") ?? "").trim();
   if (!Number.isInteger(threadId)) redirect("/forum");
   if (content.length < 2 || content.length > 10_000) redirect(`/forum/thread/${threadId}?e=short`);
-  if (rateLimited(`r:${user.id}`, 30, 3600_000)) redirect(`/forum/thread/${threadId}?e=rate`);
+  const replyLimit = isNewAccount(user) ? 8 : 30;
+  if (limitAccountAction(`reply:${user.id}`, replyLimit, HOUR_MS)) {
+    redirect(`/forum/thread/${threadId}?e=rate`);
+  }
 
   db.prepare("INSERT INTO replies (thread_id, author_id, content) VALUES (?, ?, ?)").run(
     threadId,
@@ -291,7 +314,7 @@ export async function createPaperAction(formData: FormData) {
   if (Date.now() - joined < COOL_DOWN_HOURS * 3600_000 && !user.endorsed) {
     redirect("/papers/new?e=cooldown");
   }
-  if (rateLimited(`p:${user.id}`, 5, 3600_000)) redirect("/papers/new?e=rate");
+  if (limitAccountAction(`paper:${user.id}`, 5, HOUR_MS)) redirect("/papers/new?e=rate");
 
   // 认证学者免分诊，投稿即直送审；余者进「已收稿」待掌门分诊
   const status = user.endorsed ? "in_review" : "submitted";
@@ -662,12 +685,41 @@ export async function sendMessageAction(formData: FormData) {
   if (body.length === 0) redirect(`/messages?with=${receiverId}&e=empty`);
   if (body.length > 2000) body = body.slice(0, 2000);
   if (receiverId === me.id) redirect("/messages?e=self");
-  const target = db.prepare("SELECT id, status FROM users WHERE id = ?").get(receiverId) as any;
+  const target = db
+    .prepare("SELECT id, username, role, status FROM users WHERE id = ?")
+    .get(receiverId) as any;
   if (!target || target.status !== "active") redirect(`/messages?e=nouser`);
+
+  const mutuallyCertified = isMutuallyCertified(me.id, receiverId);
+
+  // 管理员收件箱是高价值目标。普通账号只有满足下列任一条件才可主动联系管理员：
+  // 已获认证、已与该管理员互证，或管理员曾经先给它发送过私信。
+  // 这项检查必须放在服务端，不能依赖页面是否展示管理员 ID。
+  if (me.role !== "admin" && target.role === "admin") {
+    const adminOpenedConversation = !!db
+      .prepare(
+        "SELECT 1 FROM messages WHERE kind='pm' AND sender_id=? AND receiver_id=? LIMIT 1",
+      )
+      .get(receiverId, me.id);
+    if (!me.endorsed && !mutuallyCertified && !adminOpenedConversation) {
+      logAudit(me.id, "security.pm_blocked", `@${target.username}`, "未获认证账号主动联系管理员");
+      redirect(`/messages?with=${receiverId}&e=admin_gate`);
+    }
+
+    // 即便已获准联系管理员，也保留按“发送账号 + 管理员”计算的独立额度，
+    // 防止某个已认证账号失陷后持续轰炸。管理员回信不受此限制。
+    if (
+      limitAccountAction(`pm-admin-hour:${me.id}:${receiverId}`, 2, HOUR_MS) ||
+      limitAccountAction(`pm-admin-day:${me.id}:${receiverId}`, 5, DAY_MS)
+    ) {
+      logAudit(me.id, "security.pm_rate_blocked", `@${target.username}`, "管理员私信个人额度已满");
+      redirect(`/messages?with=${receiverId}&e=admin_limit`);
+    }
+  }
   // 互证豁免额度：管理员或两人互证可无限私信；否则受每日限额约束（唯一强制点）
   if (
     me.role !== "admin" &&
-    !isMutuallyCertified(me.id, receiverId) &&
+    !mutuallyCertified &&
     pmQuotaUsed(me.id) >= pmDailyLimit()
   ) {
     redirect(`/messages?with=${receiverId}&e=limit`);
@@ -675,6 +727,7 @@ export async function sendMessageAction(formData: FormData) {
   db.prepare(
     "INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')",
   ).run(me.id, receiverId, body);
+  logAudit(me.id, "message.send", `@${target.username}`, `普通私信 ${body.length} 字`);
   revalidatePath("/messages");
   redirect(`/messages?with=${receiverId}&sent=1`);
 }
@@ -690,7 +743,9 @@ export async function requestCertificationAction(targetId: number) {
     .get(targetId) as any;
   if (!target || target.status !== "active") redirect(`/users/${me.username}?e=cert_nouser`);
   if (me.role === "admin" || target.role === "admin") redirect(`/users/${me.username}?e=cert_admin`);
-  if (rateLimited(`certreq:${me.id}`, 5, 3600_000)) redirect(`/users/${target.username}?e=cert_rate`);
+  if (limitAccountAction(`cert:${me.id}`, 5, HOUR_MS)) {
+    redirect(`/users/${target.username}?e=cert_rate`);
+  }
 
   const meName = me.display_name;
   const targetName = target.display_name;
@@ -794,6 +849,11 @@ export async function createReportAction(kind: "thread" | "reply" | "paper", tar
   if (!target) fail("检举目标不存在");
   const reasonCleaned = (reason || "").trim().slice(0, 200);
   if (!reasonCleaned) fail("检举须附理由");
+  // 新账号更严格，但完全按账号计算，不会因为别人滥用而让全站用户都无法检举。
+  const reportLimit = isNewAccount(user) ? 1 : 5;
+  if (limitAccountAction(`report:${user.id}`, reportLimit, DAY_MS)) {
+    fail("今日检举次数已达个人上限，请稍后再试");
+  }
   const exists = db
     .prepare("SELECT 1 FROM reports WHERE kind = ? AND target_id = ? AND status = 'open' AND reporter_id = ?")
     .get(kind, targetId, user.id);

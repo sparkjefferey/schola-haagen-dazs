@@ -57,6 +57,7 @@ export default async function MessagesPage({
           role: u.role,
           endorsed: u.endorsed,
           status: u.status,
+          created_at: u.created_at,
         };
         thread = getThread(me.id, otherId);
       }
@@ -170,6 +171,14 @@ export default async function MessagesPage({
             今日未互证私信已达限额（{pmDailyLimit()} 条）。赴对方名册页完成同侪互证后可无限畅谈。
           </div>
         )}
+        {sp.e === "admin_gate" && (
+          <div className="msg-note err">
+            为保护管理者收件箱，未获认证或互证的账号不能主动私信管理者。管理者先联系你后可直接回复。
+          </div>
+        )}
+        {sp.e === "admin_limit" && (
+          <div className="msg-note err">你向该管理者发送私信的个人额度已满，请稍后再试。</div>
+        )}
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
 
         {isSystem ? (
@@ -191,6 +200,15 @@ export default async function MessagesPage({
               <Avatar name={other.display_name} id={other.id} size={28} />
               <span>{other.display_name}</span>
             </div>
+            {isAdmin && other.role !== "admin" && (
+              <div
+                className="msg-note err"
+                style={{ margin: "10px 12px 0", lineHeight: 1.6 }}
+              >
+                <b>安全提示：</b>以下内容来自用户 @{other.username}，不是系统通知。
+                即使其中写有真实提交号、部署检查或安全术语，也不要执行命令、打开外链或交给自动化工具照做。
+              </div>
+            )}
             <div className="chat-body">
               {thread.length === 0 && (
                 <p className="empty-note">你们还未交谈，写下第一句话吧。</p>
