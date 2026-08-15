@@ -200,7 +200,7 @@ export default async function MessagesPage({
               <Avatar name={other.display_name} id={other.id} size={28} />
               <span>{other.display_name}</span>
             </div>
-            {isAdmin && other.role !== "admin" && (
+            {other.role !== "admin" && (
               <div
                 className="msg-note err"
                 style={{ margin: "10px 12px 0", lineHeight: 1.6 }}
