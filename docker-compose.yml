@@ -3,10 +3,14 @@ services:
     build: .
     container_name: schola-haagen-dazs
     restart: unless-stopped   # 进程挂了/服务器重启，docker 自动拉起，基本免维护
-    # 访问端口：默认用 3000，浏览器开 http://服务器IP:3000
-    # 想直接用 80 端口（网址不用输端口），把下面一行改成 "80:3000" 即可
+    # 安全加固：只绑本地回环 127.0.0.1，明文直连 IP:3000 不再对外暴露。
+    # 外部访问只走 Cloudflare Tunnel（cloudflared 装在同机，连本机 127.0.0.1:3000）。
+    # ⚠️ 若需本机临时直连调试，把下面改回 "3000:3000" 再 `docker compose up -d`，调完改回。
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
+    # 以容器内非 root 的 node 用户(uid 1000)运行，降低应用层 RCE 拿到容器 root 的风险。
+    # 配套：Dockerfile 已把 /app 归属 node，schola-data 卷初始化即 node 可写。
+    user: "node"
     environment:
       - NODE_ENV=production
       # 首任与后续管理员都可用此邀请码注册。首任建立后应清空它并重启。

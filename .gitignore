@@ -11,3 +11,5 @@ data/
 public/version.json
 security-reports/
 ownership-map-out/
+# 本地部署私钥/公钥（绝不可入库）
+.deploy-keys/
