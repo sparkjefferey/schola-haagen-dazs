@@ -14,6 +14,19 @@ import { IonicColumn } from "@/components/decor";
 
 export const metadata: Metadata = { title: "学者名册" };
 
+// 动态路由参数在个别部署/代理场景下会以「百分号编码」形式到达（例如用户名含中文时
+// 变成 %E4%B8%80...），直接拿去查库会查不到 → 触发 notFound() 显示 404。
+// 这里做一次安全的百分号解码：无百分号直接返回；含百分号再解码；解码失败（如用户名
+// 本身含字面量 % 且非合法转义）则回退原始值，避免误伤 ASCII / 含 % 的用户名。
+function safeDecodeSegment(input: string): string {
+  if (input.indexOf("%") === -1) return input;
+  try {
+    return decodeURIComponent(input);
+  } catch {
+    return input;
+  }
+}
+
 export default async function UserPage({
   params,
   searchParams,
@@ -21,7 +34,8 @@ export default async function UserPage({
   params: Promise<{ username: string }>;
   searchParams: Promise<{ e?: string; ok?: string }>;
 }) {
-  const { username } = await params;
+  const { username: rawUsername } = await params;
+  const username = safeDecodeSegment(rawUsername);
   const sp = await searchParams;
   const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
   if (!row) notFound();
