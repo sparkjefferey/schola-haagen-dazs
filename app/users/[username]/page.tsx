@@ -14,17 +14,25 @@ import { IonicColumn } from "@/components/decor";
 
 export const metadata: Metadata = { title: "学者名册" };
 
-// 动态路由参数在个别部署/代理场景下会以「百分号编码」形式到达（例如用户名含中文时
-// 变成 %E4%B8%80...），直接拿去查库会查不到 → 触发 notFound() 显示 404。
-// 这里做一次安全的百分号解码：无百分号直接返回；含百分号再解码；解码失败（如用户名
-// 本身含字面量 % 且非合法转义）则回退原始值，避免误伤 ASCII / 含 % 的用户名。
+// 动态路由参数在个别部署/代理/手机 WebView 场景下会以「百分号编码」形式到达
+// （例如用户名含中文时变成 %E4%B8%80...）。更麻烦的是部分手机内置浏览器（微信/QQ
+// 等 WebView）会把路径「双重编码」成 %25E4%B8%80...，只解一次码仍查不到 → 404。
+// 这里做「可重复解码」（最多两层）：无百分号直接返回；含百分号就解码；解码后若仍含
+// 百分号且确有变化则再解一层；解码失败（用户名本身含字面量 % 且非合法转义）回退原始值。
+// 这样单次编码、双重编码都能还原成正常中文，也不会误伤 ASCII / 含 % 的普通用户名。
 function safeDecodeSegment(input: string): string {
-  if (input.indexOf("%") === -1) return input;
-  try {
-    return decodeURIComponent(input);
-  } catch {
-    return input;
+  let s = input;
+  for (let i = 0; i < 2; i++) {
+    if (s.indexOf("%") === -1) break;
+    try {
+      const decoded = decodeURIComponent(s);
+      if (decoded === s) break;
+      s = decoded;
+    } catch {
+      break;
+    }
   }
+  return s;
 }
 
 export default async function UserPage({
