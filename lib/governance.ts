@@ -27,13 +27,20 @@ export function createInviteCode(kind: "admin" | "scholar", uses: number, note: 
 }
 
 export function consumeInvite(code: string, kind: "admin" | "scholar"): boolean {
-  const row = db
-    .prepare("SELECT id, uses_left, revoked, expires_at FROM invites WHERE code = ? AND kind = ?")
-    .get(code.trim(), kind) as any;
-  if (!row) return false;
-  if (row.revoked) return false;
-  if (row.expires_at && row.expires_at < new Date().toISOString()) return false;
-  if (row.uses_left <= 0) return false;
-  db.prepare("UPDATE invites SET uses_left = uses_left - 1 WHERE id = ?").run(row.id);
-  return true;
+  const normalized = code.trim();
+  if (!normalized) return false;
+
+  // 校验与扣减必须在同一条 SQL 内完成；并发请求中最多只有 uses_left 个能成功。
+  const result = db
+    .prepare(
+      `UPDATE invites
+       SET uses_left = uses_left - 1
+       WHERE code = ?
+         AND kind = ?
+         AND revoked = 0
+         AND uses_left > 0
+         AND (expires_at IS NULL OR expires_at >= ?)`,
+    )
+    .run(normalized, kind, new Date().toISOString());
+  return result.changes === 1;
 }

@@ -32,19 +32,13 @@ echo ">> 构建镜像并启动容器（首次稍慢，要联网下载依赖）..
 docker compose build
 docker compose up -d
 
-# 4) 首次初始化示例数据（账号/示例论文）。db 已有数据时 seed 是安全的，不会重复插入。
-#    先等网站真正就绪（next 启动时会建好所有表），避免 seed 抢跑报 "no such table"。
-echo ">> 等待网站就绪（确保数据库表已建好）..."
-for i in $(seq 1 30); do
-  if curl -fsS http://localhost:3000/ >/dev/null 2>&1; then echo ">> 网站已就绪"; break; fi
-  sleep 2
-done
-echo ">> 初始化示例数据（仅首次需要，重复跑无害）..."
-docker compose exec -T schola npm run seed || echo "（seed 跳过，可能已初始化）"
+# 4) 生产环境不自动播种演示账号。
+#    如需本地演示数据，请手动提供三个 SEED_* 口令后运行 npm run seed。
+echo ">> 已跳过演示账号播种（生产安全默认）"
 
 echo ""
 echo "=== 部署完成 🎉 ==="
 echo "现在用浏览器打开：  http://<你的服务器IP>:3000"
-echo "  - 第一个注册的用户会自动成为掌门（管理员）。"
+echo "  - 首次上线请先在 .env 设置强 ADMIN_INVITE，用它注册管理员，随后清空并重启容器。"
 echo "  - 想用 80 端口（网址不带 :3000）：编辑 docker-compose.yml 把 3000:3000 改成 80:3000，再跑 docker compose up -d"
 echo "  - 以后更新代码： 先 git pull，再 bash update.sh"

@@ -861,7 +861,13 @@ export async function createReportAction(kind: "thread" | "reply" | "paper", tar
   db.prepare(
     "INSERT INTO reports (kind, target_id, reporter_id, reason) VALUES (?, ?, ?, ?)",
   ).run(kind, targetId, user.id, reasonCleaned);
-  logAudit(user.id, "report.open", `${kind}#${targetId}`, reasonCleaned.slice(0, 80));
+  // 不把攻击者可控原文复制进通用审计流；完整理由只留在带安全警告的检举详情区。
+  logAudit(
+    user.id,
+    "report.open",
+    `${kind}#${targetId}`,
+    `收到用户检举（理由 ${reasonCleaned.length} 字，原文见检举信箱）`,
+  );
   revalidatePath(`/forum/*`);
 }
 

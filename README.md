@@ -11,14 +11,15 @@
 
 ```bash
 npm install
-npm run seed        # 播种示范数据（学者、论文、论坛）
+# 如需演示数据，先在本机设置三个 SEED_*_PW 环境变量
+npm run seed        # 可选：播种示范数据（学者、论文、论坛）
 npm run dev         # http://localhost:3000
 ```
 
 演示账户（由 `scripts/seed.mjs` 播种）：
 
 - 管理者（创始掌门）`rector`、学者 `sokrates`、`plato` 等。
-- ⚠️ **这些账户的默认口令仅用于本地开发，且不再以明文写入本仓库。公网部署前请务必通过后台或数据库修改所有默认口令，或直接删库后重置——切勿带着默认口令上线。**
+- 脚本不再提供默认口令；缺少 `SEED_ADMIN_PW`、`SEED_SOKRATES_PW`、`SEED_PLATO_PW` 或任一值少于 16 位时会拒绝播种。
 
 ## 会员与门派治理（本版新增）
 
@@ -45,7 +46,7 @@ npm run dev         # http://localhost:3000
 
 ## 数据库
 
-SQLite 单文件，位于 `data/schola.db`（已入 .gitignore）。重置：`npm run db:reset && npm run seed`。
+SQLite 单文件，位于 `data/schola.db`（已入 .gitignore）。本地重置：设置三个 `SEED_*_PW` 后运行 `npm run db:reset && npm run seed`。
 注意：Vercel/Netlify 等 Serverless 平台的文件系统是临时的，**不适合**本架构；请用 VPS / Docker。
 
 ## 公网访问（当前方案：Cloudflare Tunnel 免费直通车）
@@ -81,8 +82,9 @@ npm run public       # 终端 2：输出 https://xxxx.trycloudflare.com 即为�
 ```bash
 cp .env.example .env       # 填 ADMIN_INVITE（管理者邀请函），如 openssl rand -hex 8
 docker compose up -d --build
-docker compose exec schola node scripts/seed.mjs   # 首次播种
 ```
+
+公网生产环境不播种演示账号。先用 `ADMIN_INVITE` 注册管理员，然后清空该值并重启容器。
 
 域名解析到 VPS，Nginx 反代 127.0.0.1:3000 + certbot HTTPS；国内域名需备案。
 

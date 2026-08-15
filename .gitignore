@@ -9,3 +9,5 @@ data/
 .workbuddy/
 # 部署时由 update.sh 自动生成，记录线上 commit，不应入库
 public/version.json
+security-reports/
+ownership-map-out/

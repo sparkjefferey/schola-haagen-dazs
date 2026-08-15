@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionUser } from "@/lib/auth";
 import { searchScholar } from "@/lib/scholar/sources";
 import { ALL_SOURCES, SourceKey } from "@/lib/scholar/types";
-import { consumeFixedWindow, rateLimitFingerprint, type RateLimitResult } from "@/lib/rate-limit";
+import { consumeFixedWindow, type RateLimitResult } from "@/lib/rate-limit";
 
 const VALID = new Set<string>(ALL_SOURCES);
 
@@ -16,6 +17,14 @@ const CLIENT_RATE_LIMIT = positiveInt(process.env.SCHOLAR_CLIENT_RATE_LIMIT, 20)
 export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
+  const user = await getSessionUser();
+  if (!user || user.status !== "active") {
+    return NextResponse.json(
+      { error: "请先登录后再使用学术检索。" },
+      { status: 401, headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   const sp = req.nextUrl.searchParams;
   const q = (sp.get("q") ?? "").trim();
   if (!q) return NextResponse.json({ error: "缺少查询参数 q" }, { status: 400 });
@@ -35,8 +44,12 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "年份范围无效" }, { status: 400 });
   }
 
-  const clientId = rateLimitFingerprint(clientAddress(req));
-  const clientRate = consumeFixedWindow(`scholar:client:${clientId}`, CLIENT_RATE_LIMIT, RATE_WINDOW_MS);
+  // 只限制当前登录账号，不使用可伪造的代理 IP 头，也不会让一个人的请求占满全站额度。
+  const clientRate = consumeFixedWindow(
+    `scholar:user:${user.id}`,
+    CLIENT_RATE_LIMIT,
+    RATE_WINDOW_MS,
+  );
   if (clientRate.limited) return rateLimitedResponse(clientRate);
 
   const key = JSON.stringify({ q, sources, limit, yearFrom, yearTo });
@@ -63,15 +76,6 @@ export async function GET(req: NextRequest) {
   }
   cache.set(key, { ts: Date.now(), data: papers });
   return searchResponse({ query: q, cached: false, total: papers.length, papers }, clientRate);
-}
-
-function clientAddress(req: NextRequest): string {
-  return (
-    req.headers.get("x-client-ip") ||
-    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    req.headers.get("x-real-ip") ||
-    "unknown"
-  );
 }
 
 function rateHeaders(rate: RateLimitResult): Record<string, string> {

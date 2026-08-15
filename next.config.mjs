@@ -35,6 +35,7 @@ const securityHeaders = [
 ];
 
 const nextConfig = {
+  poweredByHeader: false,
   serverExternalPackages: ["better-sqlite3"],
   outputFileTracingRoot: process.cwd(),
   async headers() {

@@ -27,6 +27,17 @@ function sourceFetch(url: URL, init: RequestInit = {}) {
   return fetch(url, { ...init, signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
 }
 
+/** 上游元数据不可信；只把 HTTP(S) 地址交给浏览器显示为链接。 */
+function safeExternalUrl(value: unknown): string | null {
+  if (typeof value !== "string" || value.length > 2048) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : null;
+  } catch {
+    return null;
+  }
+}
+
 // ---------------- OpenAlex ----------------
 export async function openAlexSearch(query: string, limit: number): Promise<PaperItem[]> {
   await throttle("openalex", 120);
@@ -47,8 +58,8 @@ export async function openAlexSearch(query: string, limit: number): Promise<Pape
     abstract: invertIndex(w.abstract_inverted_index),
     source: "openalex",
     sourceId: w.id,
-    url: w.primary_location?.landing_page_url ?? w.id,
-    pdfUrl: w.open_access?.oa_url ?? null,
+    url: safeExternalUrl(w.primary_location?.landing_page_url ?? w.id),
+    pdfUrl: safeExternalUrl(w.open_access?.oa_url),
     citationCount: w.cited_by_count ?? 0,
     journal: w.primary_location?.source?.display_name ?? null,
     keywords: (w.concepts ?? []).slice(0, 6).map((c: any) => c.display_name),
@@ -74,7 +85,7 @@ function invertIndex(idx: Record<string, number[]> | null | undefined): string |
 // ---------------- arXiv（Atom XML）----------------
 export async function arxivSearch(query: string, limit: number): Promise<PaperItem[]> {
   await throttle("arxiv", 350);
-  const url = new URL("http://export.arxiv.org/api/query");
+  const url = new URL("https://export.arxiv.org/api/query");
   url.searchParams.set("search_query", `all:${query}`);
   url.searchParams.set("start", "0");
   url.searchParams.set("max_results", String(Math.min(limit, 50)));
@@ -123,8 +134,8 @@ function parseArxiv(xml: string): PaperItem[] {
       abstract: summary || null,
       source: "arxiv",
       sourceId: idUrl,
-      url: idUrl,
-      pdfUrl,
+      url: safeExternalUrl(idUrl),
+      pdfUrl: safeExternalUrl(pdfUrl),
       citationCount: 0,
       journal: journal ? journal.replace(/\s+/g, " ").trim() : null,
       keywords: [],
@@ -157,8 +168,8 @@ export async function semanticScholarSearch(query: string, limit: number): Promi
     abstract: p.abstract ?? null,
     source: "semantic_scholar",
     sourceId: p.paperId,
-    url: p.url ?? null,
-    pdfUrl: p.openAccessPdf?.url ?? null,
+    url: safeExternalUrl(p.url),
+    pdfUrl: safeExternalUrl(p.openAccessPdf?.url),
     citationCount: p.citationCount ?? 0,
     journal: p.venue ?? null,
     keywords: [],
@@ -188,7 +199,7 @@ export async function crossrefSearch(query: string, limit: number): Promise<Pape
     abstract: cleanCrossrefAbstract(it.abstract),
     source: "crossref",
     sourceId: it.DOI ?? null,
-    url: it.URL ?? null,
+    url: safeExternalUrl(it.URL),
     pdfUrl: null,
     citationCount: it["is-referenced-by-count"] ?? 0,
     journal: Array.isArray(it["container-title"]) ? it["container-title"][0] : null,
@@ -228,8 +239,8 @@ export async function coreSearch(query: string, limit: number): Promise<PaperIte
     abstract: it.abstract ?? null,
     source: "core",
     sourceId: it.id != null ? String(it.id) : null,
-    url: it.doi ? `https://doi.org/${it.doi}` : it.downloadUrl ?? null,
-    pdfUrl: it.downloadUrl ?? null,
+    url: safeExternalUrl(it.doi ? `https://doi.org/${it.doi}` : it.downloadUrl),
+    pdfUrl: safeExternalUrl(it.downloadUrl),
     citationCount: 0,
     journal: it.sourceName ?? it.publisher ?? null,
     keywords: (it.topics ?? []).slice(0, 6),

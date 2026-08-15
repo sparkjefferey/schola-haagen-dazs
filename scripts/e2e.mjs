@@ -1,6 +1,10 @@
 import { chromium } from "playwright";
 
 const B = "http://localhost:3100";
+const adminPassword = process.env.SEED_ADMIN_PW;
+if (!adminPassword) {
+  throw new Error("缺少 SEED_ADMIN_PW；端到端测试不会使用公开的管理员默认口令。");
+}
 const uname = "t" + Date.now().toString(36);
 const results = [];
 function check(name, cond) {
@@ -75,7 +79,7 @@ const p2 = await ctx.newPage();
 p2.on("dialog", (d) => d.accept());
 await p2.goto(B + "/login");
 await p2.fill("#l-user", "rector");
-await p2.fill("#l-pass", process.env.SEED_ADMIN_PW || "Sd7mK2pQx9vBnW3rTz8L");
+await p2.fill("#l-pass", adminPassword);
 await p2.click("button:has-text('入 馆')");
 await p2.waitForURL("**/admin**");
 check("管理者登录进后台", p2.url().includes("/admin"));
