@@ -105,7 +105,7 @@ export async function registerUser(formData: FormData) {
 
   const info = db
     .prepare(
-      "INSERT INTO users (username, display_name, password_hash, role, motto) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO users (username, display_name, password_hash, role, motto, root) VALUES (?, ?, ?, ?, ?, 0)",
     )
     .run(username, displayName, hashPassword(password), role, motto);
 
@@ -541,12 +541,24 @@ export async function incrementViewsAction(paperId: number) {
 
 // ==================== 成员处置 ====================
 
+/** 创始人 = 当前 root 成员中 id 最小者（即最早注册的那位，rector）。创始人永不可被封/删/降级。 */
+function founderId(): number | null {
+  const r = db.prepare("SELECT MIN(id) AS id FROM users WHERE root = 1").get() as { id: number | null } | undefined;
+  return r && r.id != null ? r.id : null;
+}
+/** 当前 root 成员数量（用于防止把最后一位创始人也处置掉，导致全站无主）。 */
+function rootCount(): number {
+  return (db.prepare("SELECT COUNT(*) AS c FROM users WHERE root = 1").get() as { c: number }).c;
+}
+
 export async function setUserStatusAction(userId: number, status: "active" | "banned" | "retired", reason: string) {
   const actor = await requireAdmin();
   const target = db.prepare("SELECT username, role, root FROM users WHERE id = ?").get(userId) as any;
   if (!target) redirect("/admin?tab=members&e=missing");
   if (userId === actor.id && status !== "active") redirect("/admin?tab=members&e=self");
-  if (target.root && status !== "active") redirect("/admin?tab=members&e=root");
+  // 允许处置 root 成员，但保护创始人本人、且不可令全站失去最后一位创始人。
+  if (target.root && userId === founderId()) redirect("/admin?tab=members&e=founder");
+  if (target.root && status !== "active" && rootCount() <= 1) redirect("/admin?tab=members&e=last-root");
   const reasonCleaned = reason.trim().slice(0, 200);
   if (status !== "active" && reasonCleaned.length < 2) redirect("/admin?tab=members&e=reason");
 
@@ -565,7 +577,8 @@ export async function setUserRoleAction(userId: number, role: "admin" | "scholar
   if (role !== "admin" && role !== "scholar") redirect("/admin?tab=members&e=role");
   const target = db.prepare("SELECT username, role, root FROM users WHERE id = ?").get(userId) as any;
   if (!target) redirect("/admin?tab=members&e=missing");
-  if (target.root && role === "scholar") redirect("/admin?tab=members&e=root");
+  if (target.root && userId === founderId()) redirect("/admin?tab=members&e=founder");
+  if (target.root && role === "scholar" && rootCount() <= 1) redirect("/admin?tab=members&e=last-root");
   if (target.role === "admin" && role === "scholar") {
     const admins = (db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin' AND status='active'").get() as any).c;
     if (admins <= 1) redirect("/admin?tab=members&e=last-admin");
@@ -640,7 +653,8 @@ export async function deleteUserAction(userId: number) {
   if (actor.id === userId) redirect("/admin?tab=members&e=self");
   const target = db.prepare("SELECT username, root, role FROM users WHERE id = ?").get(userId) as any;
   if (!target) redirect("/admin?tab=members&e=missing");
-  if (target.root) redirect("/admin?tab=members&e=root");
+  if (target.root && userId === founderId()) redirect("/admin?tab=members&e=founder");
+  if (target.root && rootCount() <= 1) redirect("/admin?tab=members&e=last-root");
   if (target.role === "admin") {
     const admins = (db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get() as any).c;
     if (admins <= 1) redirect("/admin?tab=members&e=last-admin");

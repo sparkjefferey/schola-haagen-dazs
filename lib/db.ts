@@ -425,8 +425,15 @@ export function initSchema() {
     db.exec("DROP TABLE login_attempts");
   }
 
-  // 老库中已有论文视为已认证直刊（出生即正典）
-  db.prepare("UPDATE users SET root = 1 WHERE id = (SELECT MIN(id) FROM users) AND root = 0").run();
+  // 创始人归一化：历史曾因列默认值异常导致全员 root=1（青衫事件暴露），
+  // 此处强制收敛为「全站仅有最早注册者（最小 id）一位 root」——
+  // 既修复存量错误，也确保「不可被封禁/删除」的保护只作用于真正的创始掌门，
+  // 使后台封禁/降级/删除对所有其他成员（含攻击者）都能正常生效。
+  db.prepare("UPDATE users SET root = 0 WHERE id != (SELECT MIN(id) FROM users)").run();
+  const hasFounder = (db.prepare("SELECT COUNT(*) AS c FROM users WHERE root = 1").get() as { c: number }).c > 0;
+  if (!hasFounder) {
+    db.prepare("UPDATE users SET root = 1 WHERE id = (SELECT MIN(id) FROM users)").run();
+  }
 }
 
 initSchema();
