@@ -128,9 +128,9 @@ const ago = (days) =>
   new Date(Date.now() - days * 86400_000).toISOString().slice(0, 19).replace("T", " ");
 
 const seedUsers = [
-  { username: "rector", display_name: "馆长大人", role: "admin", pw: "haagen2024", motto: "以乳求真，以勺存证", root: 1 },
-  { username: "sokrates", display_name: "苏格拉雪", role: "scholar", pw: "snow2024", motto: "我唯一所知，是我不甚知", root: 0 },
-  { username: "plato", display_name: "柏拉图方", role: "scholar", pw: "cone2024", motto: "甜可即席而尽，美则存乎一构", root: 0 },
+  { username: "rector", display_name: "馆长大人", role: "admin", pw: "Sd7mK2pQx9vBnW3rTz8L", motto: "以乳求真，以勺存证", root: 1 },
+  { username: "sokrates", display_name: "苏格拉雪", role: "scholar", pw: "Sn4vFbHxQeLiYdCaSewx", motto: "我唯一所知，是我不甚知", root: 0 },
+  { username: "plato", display_name: "柏拉图方", role: "scholar", pw: "Pl2tOwXmK9vBnR3tZq7Y", motto: "甜可即席而尽，美则存乎一构", root: 0 },
 ];
 
 const insertUser = db.prepare(
@@ -223,8 +223,6 @@ if (threadsOnly === 0) {
   console.log("✓ 论坛：播种 2 个论题及回帖");
 }
 
-console.log("\n✅ 种子完成。默认账户：");
-console.log("  管理者 rector / haagen2024");
-console.log("  学者   sokrates / snow2024");
-console.log("  学者   plato    / cone2024");
-console.log("⚠️  首次公网部署前请修改密码，或设置 ADMIN_INVITE 邀请码。");
+console.log("\n✅ 种子完成。已播种演示账户（rector / sokrates / plato 等）。");
+console.log("⚠️  演示账户仅用于本地开发，口令见 scripts/seed.mjs 的 seedUsers。");
+console.log("⚠️  首次公网部署前请务必修改所有默认口令，或设置 ADMIN_INVITE 邀请码后删库重置。");

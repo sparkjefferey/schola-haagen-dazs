@@ -75,7 +75,7 @@ const p2 = await ctx.newPage();
 p2.on("dialog", (d) => d.accept());
 await p2.goto(B + "/login");
 await p2.fill("#l-user", "rector");
-await p2.fill("#l-pass", "haagen2024");
+await p2.fill("#l-pass", process.env.SEED_ADMIN_PW || "Sd7mK2pQx9vBnW3rTz8L");
 await p2.click("button:has-text('入 馆')");
 await p2.waitForURL("**/admin**");
 check("管理者登录进后台", p2.url().includes("/admin"));
