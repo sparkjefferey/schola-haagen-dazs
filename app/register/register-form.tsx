@@ -2,11 +2,21 @@
 
 import { useState } from "react";
 import { registerUser } from "@/lib/actions";
+import type { CaptchaChallenge } from "@/lib/captcha";
+import { passwordStrength, type StrengthResult } from "@/lib/password-strength";
+import { PasswordStrengthHint } from "@/components/password-strength-hint";
 
-export default function RegisterForm({ initialTab = "scholar" }: { initialTab?: "scholar" | "admin" }) {
+export default function RegisterForm({
+  initialTab = "scholar",
+  captcha,
+}: {
+  initialTab?: "scholar" | "admin";
+  captcha: CaptchaChallenge;
+}) {
   const [tab, setTab] = useState<"scholar" | "admin">(initialTab);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [strength, setStrength] = useState<StrengthResult>(passwordStrength(""));
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -36,6 +46,16 @@ export default function RegisterForm({ initialTab = "scholar" }: { initialTab?: 
       {error && <p className="notice" style={{ color: "var(--maroon-deep)" }}>✗ {error}</p>}
 
       <form onSubmit={onSubmit} className="card" style={{ padding: 28 }}>
+        {/* 蜜罐：人类看不见（display:none），脚本无脑填满所有字段时才会触发。
+            填了即视作机器，走"验证码错误"流程——真人永不触发。 */}
+        <input
+          type="text"
+          name="website"
+          autoComplete="off"
+          tabIndex={-1}
+          aria-hidden="true"
+          style={{ display: "none" }}
+        />
         <input type="hidden" name="role" value={tab} />
         <div className="row-inputs">
           <div className="field">
@@ -49,11 +69,34 @@ export default function RegisterForm({ initialTab = "scholar" }: { initialTab?: 
         </div>
         <div className="field">
           <label htmlFor="r-pass">口 令</label>
-          <input id="r-pass" name="password" type="password" required minLength={6} placeholder="至少 6 位；门派不设找回" />
+          <input
+            id="r-pass"
+            name="password"
+            type="password"
+            required
+            minLength={6}
+            placeholder="至少 6 位；建议 12 位以上"
+            onChange={(e) => setStrength(passwordStrength(e.target.value))}
+          />
+          <PasswordStrengthHint strength={strength} />
         </div>
         <div className="field">
           <label htmlFor="r-motto">座 右 铭（可选）</label>
           <input id="r-motto" name="motto" maxLength={80} placeholder="将见于你的名册与学榜" />
+        </div>
+
+        <div className="field">
+          <label htmlFor="r-cap">验 明 正 身</label>
+          <input
+            id="r-cap"
+            name="captcha_answer"
+            inputMode="numeric"
+            autoComplete="off"
+            required
+            placeholder={captcha.question}
+          />
+          <input type="hidden" name="captcha_id" value={captcha.id} />
+          <p className="hint">答出此算式的得数，以证非机器注册。注册无找回，口令务必牢记。</p>
         </div>
 
         {tab === "admin" && (

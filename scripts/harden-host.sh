@@ -41,7 +41,7 @@ echo ">> SSH：禁用密码、禁止 root 直登；日常用 $ADMIN_USER 登录"
 # 3) 部署密钥最小化（手动步骤，提示）：
 #    在 ~/.ssh/authorized_keys 里给部署公钥加前缀，使其只能跑部署、拿不到 shell：
 #    command="cd /root/Schola-Haagen-Dazs && git pull && bash update.sh",no-port-forwarding,no-X11-forwarding,no-agent-forwarding ssh-ed25519 AAAA... deploy
-echo ">> 提示：部署公钥建议加 command= 限制（见 SECURITY_MONITORING.md）"
+echo ">> 提示：部署公钥建议加 command= 限制（见 docs/security/runbooks/SECURITY_MONITORING.md）"
 
 # 4) 文件完整性基线（AIDE）：日后可定时 aide --check 发现被篡改的文件
 if command -v aide >/dev/null 2>&1 || apt-get update >/dev/null 2>&1 && apt-get install -y aide >/dev/null 2>&1; then

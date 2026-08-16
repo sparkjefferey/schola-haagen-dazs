@@ -13,6 +13,9 @@ const MAX_CACHE_ENTRIES = 200;
 const MAX_QUERY_LENGTH = 200;
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const CLIENT_RATE_LIMIT = positiveInt(process.env.SCHOLAR_CLIENT_RATE_LIMIT, 20);
+// 全站总闸（W6）：僵尸多账号最多把外部 API 调用放大到 120 次/10 分钟。
+// 正常小站流量远低于此，真人无感；仅缓存未命中（真正打上游）时计数。
+const GLOBAL_RATE_LIMIT = positiveInt(process.env.SCHOLAR_GLOBAL_RATE_LIMIT, 120);
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +65,10 @@ export async function GET(req: NextRequest) {
     const data = hit.data as any[];
     return searchResponse({ query: q, cached: true, total: data.length, papers: data }, clientRate);
   }
+
+  // 全站总闸（W6）：多账号也无法放大外部 API 调用。仅在缓存未命中（真正打上游）时计数。
+  const globalRate = consumeFixedWindow("scholar:global", GLOBAL_RATE_LIMIT, RATE_WINDOW_MS);
+  if (globalRate.limited) return rateLimitedResponse(globalRate);
 
   const papers = await searchScholar({
     query: q,

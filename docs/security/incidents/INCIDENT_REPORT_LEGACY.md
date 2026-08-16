@@ -1,5 +1,7 @@
 # 安全事件复盘报告 · 沙藏学馆（Schola Häagen-Dazs）
 
+> **历史版本警告**：本文件由另一 Agent 较早生成，包含尚未由原始证据支持或已与代码记录冲突的归因，例如“`users.root` 默认值为 1”“`/opt/ops` 已实锤”“应用账号一路提权到宿主 root”。正式调查请以同目录 `ROOT_INCIDENT_INVESTIGATION_2026-08-16.md` 为准。本文件仅保留用于追踪调查过程，不能作为最终事故结论。
+
 > **用途**：① 本次 OS 级沦陷事件的完整记录；② 后续同类事件的应急响应手册（AI 与人均可复用）。
 > **时间**：2026-08-14 至 2026-08-16
 > **定性**：宿主 OS root 被攻击者长期持有（真实后门 + 自愈），非单纯应用层问题。
@@ -59,8 +61,8 @@
 | root 漏洞根治（归一化 + INSERT 写 root=0 + 治理拦截改写） | `lib/db.ts` `lib/actions.ts` | `0774722` |
 | 应用只绑 `127.0.0.1` + 容器非 root 运行、不挂 docker.sock | `docker-compose.yml` `Dockerfile` | `191c2ad` |
 | SSH 禁密码仅密钥、UFW 只开 22、Tunnel 收口 HTTPS | `deploy.sh` | `191c2ad` |
-| 重装后恢复 + 加固清单 | `DEPLOY_RECOVER.md`（新增） | `191c2ad` |
-| 入侵绊线（签名式）+ 主机一次性加固 + 纵深防御说明 | `scripts/monitor.sh` `scripts/harden-host.sh` `SECURITY_MONITORING.md`（新增） | `ee3f98b` |
+| 重装后恢复 + 加固清单 | [`../runbooks/DEPLOY_RECOVER.md`](../runbooks/DEPLOY_RECOVER.md) | `191c2ad` |
+| 入侵绊线（签名式）+ 主机一次性加固 + 纵深防御说明 | `scripts/monitor.sh` `scripts/harden-host.sh` [`../runbooks/SECURITY_MONITORING.md`](../runbooks/SECURITY_MONITORING.md) | `ee3f98b` |
 | 绊线升级为**签名 + 行为双层**（完整性基线 / 异常端口 / 可疑路径进程 / 新增 SUID / 内核模块 / root 解释器） | `scripts/monitor.sh` | `d46eae5` |
 | 新部署密钥（ed25519，私钥 gitignore，未入库） | `.deploy-keys/dmit_deploy_ed25519` | `191c2ad` |
 
@@ -73,7 +75,7 @@
 | 缺口 | 说明 | 责任 |
 |---|---|---|
 | 🔴 **入口未查明** | 攻击者怎么拿的 root（SSH 密钥泄露？Web RCE？还是 root 列 bug 接成的提权链？）至今没查清。不堵入口，新系统会被再来 | 新系统起来后查（离线 auth.log + `npm audit` + 审 `lib/actions.ts` 有无拼 shell） |
-| 🔴 **真实主机尚未重建验证** | 脚本/配置已写好推仓库，但**还没在真机上跑过**；运行态未实测 | 按 `DEPLOY_RECOVER.md` 执行并反馈 |
+| 🔴 **真实主机尚未重建验证** | 脚本/配置已写好推仓库，但**还没在真机上跑过**；运行态未实测 | 按 [`../runbooks/DEPLOY_RECOVER.md`](../runbooks/DEPLOY_RECOVER.md) 执行并反馈 |
 | 🟠 **秘密轮换未实际执行** | DB 口令、Cloudflared 令牌、部署密钥、用户会话的**实际轮换**要在恢复时做（清 sessions + 重置口令 + 新隧道令牌） | 恢复流程里执行 |
 | 🟠 **旧部署密钥可能仍暴露** | 旧 `github-actions-deploy` 公钥当时在受陷主机 authorized_keys；自动部署链路若仍用旧私钥需重生成 | 新系统重新生成部署密钥对 |
 
@@ -109,10 +111,10 @@
 
 - **生产主机**：`191.223.209.116`（DMIT 香港轻量节点，Ubuntu 22.04）
 - **旧部署 SSH 私钥**：`/Users/jefferey/.ssh/dmit_key.pem`（Mac 本地，未上服务器，理论未泄露）
-- **新部署密钥**：`.deploy-keys/dmit_deploy_ed25519`（ed25519，公钥已嵌 `deploy.sh` / `DEPLOY_RECOVER.md`，私钥 gitignore）
+- **新部署密钥**：`.deploy-keys/dmit_deploy_ed25519`（ed25519，公钥已嵌 `deploy.sh` / [`../runbooks/DEPLOY_RECOVER.md`](../runbooks/DEPLOY_RECOVER.md)，私钥 gitignore）
 - **临时 Tunnel 地址**：`https://commerce-studied-hispanic-composite.trycloudflare.com`（quick tunnel，重启 cloudflared 会变；稳定地址需免费 CF 账号建 named tunnel）
 - **攻击公钥指纹**：见 §3（上线后定期 `grep` 监控）
 
 ---
 
-*本报告与 `SECURITY_MONITORING.md`、`DEPLOY_RECOVER.md` 互为配套。任何一次重建/恢复后，回来更新 §5 的缺口状态。*
+*本历史报告与 [`../runbooks/SECURITY_MONITORING.md`](../runbooks/SECURITY_MONITORING.md)、[`../runbooks/DEPLOY_RECOVER.md`](../runbooks/DEPLOY_RECOVER.md) 互为配套；最终事故结论以同目录正式调查报告为准。*

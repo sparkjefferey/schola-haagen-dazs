@@ -7,8 +7,21 @@ const SESSION_COOKIE = "schola_session";
 const SESSION_DAYS = 7;
 const MAX_FAILS = 5;
 const LOCK_MINUTES = 15;
+/** 同一 (IP, 用户名) 连续失败达到此数后，后续尝试必须先答对验证码（真人校验）。 */
+export const CAPTCHA_FAILS = 3;
 
 // ---------------- 口令 ----------------
+
+/** 可信客户端 IP（middleware 已注入 x-client-ip，直连不可伪造）。 */
+export async function clientIp(): Promise<string> {
+  const h = await headers();
+  return (
+    h.get("x-client-ip") ||
+    h.get("x-forwarded-for")?.split(",").pop()?.trim() ||
+    h.get("x-real-ip") ||
+    "local"
+  );
+}
 
 export function hashPassword(password: string): string {
   const salt = randomBytes(16).toString("hex");
@@ -38,13 +51,27 @@ export function isLocked(ip: string, username: string): boolean {
   return row.count >= MAX_FAILS;
 }
 
-export function recordFailedAttempt(ip: string, username: string) {
+/** 验证码门槛：同一 (IP, 用户名) 失败达 CAPTCHA_FAILS 次后，继续尝试须先答对算式。 */
+export function captchaRequired(ip: string, username: string): boolean {
+  const row = db
+    .prepare("SELECT count, window_end FROM login_attempts WHERE ip = ? AND username = ?")
+    .get(ip, username) as { count: number; window_end: string } | undefined;
+  if (!row) return false;
+  if (row.window_end < new Date().toISOString()) return false;
+  return row.count >= CAPTCHA_FAILS;
+}
+
+export function recordFailedAttempt(ip: string, username: string): number {
   const now = new Date();
   const windowEnd = new Date(now.getTime() + LOCK_MINUTES * 60_000).toISOString();
   db.prepare(
     `INSERT INTO login_attempts (ip, username, count, window_end) VALUES (?, ?, 1, ?)
      ON CONFLICT(ip, username) DO UPDATE SET count = count + 1, window_end = ?`,
   ).run(ip, username, windowEnd, windowEnd);
+  const row = db
+    .prepare("SELECT count FROM login_attempts WHERE ip = ? AND username = ?")
+    .get(ip, username) as { count: number };
+  return row.count;
 }
 
 export function clearFailedAttempts(ip: string, username: string) {

@@ -2,7 +2,6 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
 import { db, DISCIPLINES, FORUM_CATEGORIES, nextManuscriptCode } from "@/lib/db";
 import {
   hashPassword,
@@ -14,6 +13,9 @@ import {
   getSessionUser,
   destroyAllSessions,
   isLocked,
+  captchaRequired,
+  CAPTCHA_FAILS,
+  clientIp,
   recordFailedAttempt,
   clearFailedAttempts,
 } from "@/lib/auth";
@@ -21,7 +23,8 @@ import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
-import { consumeFixedWindow } from "@/lib/rate-limit";
+import { consumeFixedWindow, resetFixedWindow, peekFixedWindow, rateLimitFingerprint } from "@/lib/rate-limit";
+import { verifyCaptcha } from "@/lib/captcha";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
@@ -31,6 +34,13 @@ function fail(message: string): never {
 
 const HOUR_MS = 3600_000;
 const DAY_MS = 24 * HOUR_MS;
+
+// 登录限流参数（与 lib/auth.ts 的单 IP 桶互补）：
+// - 设备桶：同一真实 IP 累计错误 10 次 → 锁该设备 15 分钟（锁"设备"不锁"账号"）；
+// - 用户名全局桶：全站同一用户名累计 15 次失败 → 每次尝试递增等待而非锁死账号。
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const IP_DEVICE_FAILS = 10;
+const USER_GLOBAL_FAILS = 15;
 
 function accountAgeMs(createdAt: string): number {
   const normalized = createdAt.endsWith("Z") ? createdAt : `${createdAt}Z`;
@@ -44,18 +54,6 @@ function isNewAccount(user: { created_at: string }): boolean {
 
 function limitAccountAction(key: string, limit: number, windowMs: number): boolean {
   return consumeFixedWindow(key, limit, windowMs).limited;
-}
-
-async function clientIp(): Promise<string> {
-  const h = await headers();
-  // middleware 已注入真实 TCP 客户端 IP（直连不可伪造），优先采用；
-  // 将来接入可信反代（Cloudflare/Caddy）后，再改为优先信任 x-forwarded-for。
-  return (
-    h.get("x-client-ip") ||
-    h.get("x-forwarded-for")?.split(",")[0].trim() ||
-    h.get("x-real-ip") ||
-    "local"
-  );
 }
 
 export async function requireLogin() {
@@ -80,19 +78,38 @@ export async function registerUser(formData: FormData) {
   const motto = String(formData.get("motto") ?? "").trim().slice(0, 80);
   const role = String(formData.get("role") ?? "scholar") as "admin" | "scholar";
   const invite = String(formData.get("invite") ?? "").trim();
+  const captchaId = String(formData.get("captcha_id") ?? "").trim();
+  const captchaAnswer = String(formData.get("captcha_answer") ?? "").trim();
   const roleTab = role === "admin" ? "&tab=admin" : "";
 
   if (!USERNAME_RE.test(username)) redirect(`/register?e=user${roleTab}`);
   if (password.length < 6 || password.length > 256) redirect(`/register?e=pass${roleTab}`);
   if (role !== "admin" && role !== "scholar") redirect("/register?e=user");
 
-  // 防恶意批量注册：全局兜底（挡多IP僵尸网络）+ 单IP（挡单点猛刷）。
-  // 小众学术站正常注册极少，每 10 分钟全局 8 个、单 IP 3 个足够，不会误伤真人。
-  const ip = await clientIp();
-  if (rateLimited("reg:global", 8, 600_000)) redirect(`/register?e=regrate${roleTab}`);
-  if (rateLimited(`reg:${ip}`, 3, 600_000)) redirect(`/register?e=regrate${roleTab}`);
+  // 蜜罐（呆脚本过滤器）：人类看不见的隐藏字段被填了 = 机器在操作，
+  // 走"验证码错误"流程即可（真人永不触发，触发者也不被记仇/封禁）。
+  if (String(formData.get("website") ?? "").trim() !== "") {
+    redirect(`/register?e=captcha${roleTab}`);
+  }
 
-  const exists = db.prepare("SELECT 1 FROM users WHERE username = ?").get(username);
+  // 验证码（真人校验）：注册页每次渲染出一道算式，机器人无法预取囤积。
+  if (!verifyCaptcha(captchaId, "register", captchaAnswer)) {
+    redirect(`/register?e=captcha${roleTab}`);
+  }
+
+  // 防恶意批量注册：全局兜底（挡多IP僵尸网络）+ 单IP（挡单点猛刷）。
+  // SQLite 持久化（重启不清零）；小众学术站正常注册极少，
+  // 每 10 分钟全局 8 个、单 IP 3 个足够，不会误伤真人。
+  const ip = await clientIp();
+  if (limitAccountAction("reg:global", 8, 600_000)) redirect(`/register?e=regrate${roleTab}`);
+  if (limitAccountAction(`reg:${rateLimitFingerprint(ip)}`, 3, 600_000)) {
+    redirect(`/register?e=regrate${roleTab}`);
+  }
+
+  // 同名检测：不区分大小写（"Rector"/"rector" 视为同一名，防止大小写变体卡名/冒名）
+  const exists = db
+    .prepare("SELECT 1 FROM users WHERE lower(username) = lower(?)")
+    .get(username);
   if (exists) redirect(`/register?e=taken${roleTab}`);
 
   if (role === "admin") {
@@ -103,11 +120,14 @@ export async function registerUser(formData: FormData) {
     logAudit(null, "admin.register", username, "凭邀请函注册管理者");
   }
 
+  // INSERT OR IGNORE：并发抢注同一名的竞态由数据库唯一索引兜底
+  // （changes = 0 即撞名被拒），避免两个同时请求都通过预检后一方报 500。
   const info = db
     .prepare(
-      "INSERT INTO users (username, display_name, password_hash, role, motto, root) VALUES (?, ?, ?, ?, ?, 0)",
+      "INSERT OR IGNORE INTO users (username, display_name, password_hash, role, motto, root) VALUES (?, ?, ?, ?, ?, 0)",
     )
     .run(username, displayName, hashPassword(password), role, motto);
+  if (info.changes === 0) redirect(`/register?e=taken${roleTab}`);
 
   if (role === "scholar") {
     logAudit(info.lastInsertRowid as number, "user.register", username, "公开入学");
@@ -123,18 +143,52 @@ export async function registerUser(formData: FormData) {
 
 export async function loginAction(formData: FormData) {
   const username = String(formData.get("username") ?? "").trim().slice(0, 20);
-  const password = String(formData.get("password") ?? "");
+  const password = String(formData.get("password") ?? "").slice(0, 256);
+  const captchaId = String(formData.get("captcha_id") ?? "").trim();
+  const captchaAnswer = String(formData.get("captcha_answer") ?? "").trim();
   const ip = await clientIp();
+  const ipKey = `login:ip:${rateLimitFingerprint(ip)}`;
+
+  // 设备锁（锁"设备"而非"账号"）：同一设备（真实 IP，不可伪造）累计错误 10 次 →
+  // 锁该设备 15 分钟。不影响他人、不锁他人账号；换设备即可正常登录。
+  if (peekFixedWindow(ipKey).count >= IP_DEVICE_FAILS) {
+    redirect("/login?e=locked");
+  }
+
+  // 验证码（真人校验）：同一 (IP, 用户名) 失败达 3 次后，继续尝试必须答对算式。
+  // 只拦"正在狂试的那一方"——受害者的设备没有失败记录，从不受此门影响。
+  if (captchaRequired(ip, username)) {
+    const ok = verifyCaptcha(captchaId, username, captchaAnswer);
+    if (!ok) redirect(`/login?e=captcha&u=${encodeURIComponent(username)}`);
+  }
 
   if (isLocked(ip, username)) {
     redirect("/login?e=locked");
   }
 
+  // 用户名全局桶（V1 纵深，防多设备/换 IP 分布式爆破）：全站同一用户名累计 15 次
+  // 失败后不再"锁死账号"（否则任何人可拿他人用户名错试 15 次将其锁 15 分钟），
+  // 改为每次尝试递增等待 30s/1m/2m/4m/1m（封顶 60s）——正常用户永远能登录，
+  // 攻击者爆破速度上限约 60 次/小时；成功登录即清零。
+  const userBucket = peekFixedWindow(`login:user:${username}`);
+  if (userBucket.count >= USER_GLOBAL_FAILS) {
+    const waitMs = Math.min(30_000 * 2 ** (userBucket.count - USER_GLOBAL_FAILS), 60_000);
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
   const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
   if (!row || !verifyPassword(password, row.password_hash)) {
-    recordFailedAttempt(ip, username);
-    redirect("/login?e=bad");
+    consumeFixedWindow(ipKey, IP_DEVICE_FAILS, LOGIN_WINDOW_MS);
+    consumeFixedWindow(`login:user:${username}`, USER_GLOBAL_FAILS, LOGIN_WINDOW_MS);
+    const fails = recordFailedAttempt(ip, username);
+    redirect(
+      fails >= CAPTCHA_FAILS
+        ? `/login?e=captcha&u=${encodeURIComponent(username)}`
+        : "/login?e=bad",
+    );
   }
+  resetFixedWindow(ipKey);
+  resetFixedWindow(`login:user:${username}`);
   clearFailedAttempts(ip, username);
 
   if (row.status !== "active") {
@@ -160,19 +214,6 @@ export async function logoutAction() {
 }
 
 // ==================== 论坛 ====================
-
-const RATE_LIMITS = new Map<string, { t: number; n: number }>();
-function rateLimited(key: string, max: number, windowMs: number): boolean {
-  const now = Date.now();
-  const cur = RATE_LIMITS.get(key);
-  if (!cur || now - cur.t > windowMs) {
-    RATE_LIMITS.set(key, { t: now, n: 1 });
-    return false;
-  }
-  if (cur.n >= max) return true;
-  cur.n += 1;
-  return false;
-}
 
 export async function createThreadAction(formData: FormData) {
   const user = await requireLogin();
@@ -531,6 +572,12 @@ export async function rejectPaperAction(paperId: number, reason: string) {
 export async function incrementViewsAction(paperId: number) {
   const user = await getSessionUser();
   if (!user || !Number.isInteger(paperId) || paperId <= 0) return;
+  // 阅读量防刷（V5）：同一 IP 对同一论文 10 分钟只计 1 次。
+  // 正常阅读无感；脚本换账号狂刷也无法刷高学榜分。
+  const ip = await clientIp();
+  if (limitAccountAction(`view:${rateLimitFingerprint(ip)}:${paperId}`, 1, 10 * 60_000)) {
+    return;
+  }
   const result = db
     .prepare(
       "UPDATE papers SET views = views + 1 WHERE id = ? AND status = 'published' AND author_id <> ?",

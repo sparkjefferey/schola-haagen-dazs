@@ -60,6 +60,23 @@ export function consumeFixedWindow(
   return consumeWindow(key, limit, windowMs, now);
 }
 
+/** 清除某桶计数（登录成功后清零全局桶，避免正常用户被历史失败累积误伤）。 */
+export function resetFixedWindow(key: string) {
+  db.prepare("DELETE FROM rate_limit_windows WHERE key = ?").run(key);
+}
+
+/** 只读查看某桶当前计数与窗口结束时间（不消耗额度）。用于登录失败递增退避等。 */
+export function peekFixedWindow(
+  key: string,
+  now = Date.now(),
+): { count: number; windowEnd: number } {
+  const row = db
+    .prepare("SELECT count, window_end FROM rate_limit_windows WHERE key = ?")
+    .get(key) as { count: number; window_end: number } | undefined;
+  if (!row || row.window_end <= now) return { count: 0, windowEnd: now };
+  return { count: row.count, windowEnd: row.window_end };
+}
+
 /** 只保存客户端标识的摘要，避免在限流表中长期保留原始 IP。 */
 export function rateLimitFingerprint(value: string): string {
   return createHash("sha256").update(value || "unknown").digest("hex").slice(0, 32);

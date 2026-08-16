@@ -88,7 +88,7 @@ command="cd /root/Schola-Haagen-Dazs && git pull && bash update.sh",no-port-forw
 | 缺口 | 说明 | 谁负责 |
 |---|---|---|
 | 🔴 **入口未查明** | 攻击者怎么拿的 root（SSH 密钥泄露？Web RCE？还是之前 root 列 bug 接成的提权链？）至今没查清。不堵入口，新系统装好还会被再来 | 新系统起来后必须查（auth.log 离线件 + `npm audit` + 审 `lib/actions.ts` 有无拼 shell） |
-| 🔴 **真实主机尚未重建验证** | 上述脚本/配置都已写好推上仓库，但**还没在真机上跑过**；"非 root 容器、localhost 绑定"等只验证过 compose 文件，未验证运行态 | 你重装完按 `DEPLOY_RECOVER.md` 执行并反馈，我才能确认真生效 |
+| 🔴 **真实主机尚未重建验证** | 上述脚本/配置都已写好推上仓库，但**还没在真机上跑过**；"非 root 容器、localhost 绑定"等只验证过 compose 文件，未验证运行态 | 你重装完按同目录 [`DEPLOY_RECOVER.md`](DEPLOY_RECOVER.md) 执行并反馈，我才能确认真生效 |
 | 🟠 **秘密轮换未实际执行** | "假设一切已泄露"只是方针；DB 口令、Cloudflared 令牌、部署密钥、用户会话的**实际轮换**要在恢复时做（清 sessions + 重置口令 + 新隧道令牌） | 恢复流程里执行 |
 | 🟠 **部署密钥仍可能暴露** | 旧 `github-actions-deploy` 公钥当时在受陷主机 authorized_keys；若自动部署链路还在用旧私钥，需在新系统重新生成 | 新系统重新生成部署密钥对 |
 
@@ -97,6 +97,6 @@ command="cd /root/Schola-Haagen-Dazs && git pull && bash update.sh",no-port-forw
 ## 四、如果绊线再次触发
 
 1. 立刻关机（或 `AUTO_SHUTDOWN` 已自动关）。
-2. 从 DMIT 快照回滚到干净基线，或按 `DEPLOY_RECOVER.md` 重建。
+2. 从 DMIT 快照回滚到干净基线，或按同目录 [`DEPLOY_RECOVER.md`](DEPLOY_RECOVER.md) 重建。
 3. 查离线 `auth.log` 找入口 IP / 时间。
 4. 复盘：是 SSH、Web RCE、还是提权链？补对应防线后再上线。

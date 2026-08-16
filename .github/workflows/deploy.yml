@@ -1,18 +1,39 @@
-name: Auto Deploy
+name: Manual Deploy (clean server only)
 
-# 触发条件：
-#   1) 有人 push 到 main 分支（你或朋友改完代码提交即自动上线）
-#   2) 也可在 GitHub → Actions → 本工作流 手动点 "Run workflow" 触发
+# 2026-08-15 事件响应：旧服务器 root 权限已确认失陷。
+# 禁止 push 自动触发，避免 GitHub 再向不可信主机发起 SSH 连接。
+# 只有新服务器已经重装、密钥全部轮换后，才可手动输入 REBUILT 运行。
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      clean_target_confirmation:
+        description: "确认目标已用官方镜像重装且全部密钥已轮换：输入 REBUILT"
+        required: true
+        type: string
 
 jobs:
   deploy:
+    if: ${{ inputs.clean_target_confirmation == 'REBUILT' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    concurrency:
+      group: production-deploy
+      cancel-in-progress: false
     steps:
+      - name: 拒绝 root 部署与缺失配置
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+          DEPLOY_FINGERPRINT: ${{ secrets.DEPLOY_FINGERPRINT }}
+        run: |
+          set -eu
+          test -n "$DEPLOY_HOST"
+          test -n "$DEPLOY_USER"
+          test -n "$DEPLOY_KEY"
+          test -n "$DEPLOY_FINGERPRINT"
+          test "$DEPLOY_USER" != "root"
+
       - name: 通过 SSH 登录服务器并部署
         # 固定到完整 commit SHA（对应 v1.0.3），避免第三方 Action 被篡改后自动拉取恶意版本
         uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262
@@ -20,10 +41,11 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          fingerprint: ${{ secrets.DEPLOY_FINGERPRINT }}
           port: 22
           script_stop: true
           script: |
-            cd /root/schola-haagen-dazs
+            cd /srv/schola-haagen-dazs
             git fetch origin
             git reset --hard origin/main
             bash update.sh

@@ -8,19 +8,29 @@ const SESSION_COOKIE = "schola_session";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // 直连模式下 Next.js 拿不到真实客户端 TCP IP（Web Request 抽象无 remote address），
-  // 这里优先信任 x-forwarded-for / x-real-ip——目前直连二者皆空，回落 "local"；
-  // 将来接入可信反代（Cloudflare/Caddy）后会自动带上真实 IP，无需改代码。
-  // 注意：直连时客户端可伪造这两个头，故「单 IP 限流」在直连下退化为全局共享桶，
-  // 真正的防线是 actions.ts 里的「全局注册速率限制」（不依赖 IP，挡得住多 IP 僵尸网络）。
+  // 可信客户端 IP（不可被客户端伪造的前提：请求只经可信反代到达本应用）：
+  // 1. CF-Connecting-IP：由 Cloudflare 边缘（cloudflared 隧道必经）写入，客户端无法伪造；
+  // 2. 否则取 X-Forwarded-For 的「最后一项」——可信反代在末尾追加真实客户端 IP，
+  //    客户端自己塞进头部的前缀段不可信（修复 V1：原取第一项可被 XFF 伪造绕过锁定）；
+  // 3. 否则 x-real-ip；都为空则回落 "local"。
+  // 直连调试（无可信反代）时客户端仍可伪造上述头，因此登录限流另设「按用户名全局桶」
+  // 兜底（见 actions.ts loginAction），IP 轮换也无法绕开。
+  const cfIp = request.headers.get("cf-connecting-ip");
   const forwarded = request.headers.get("x-forwarded-for");
-  const clientIp =
-    (forwarded ? forwarded.split(",")[0].trim() : request.headers.get("x-real-ip")) || "local";
+  const lastForwarded = forwarded ? forwarded.split(",").pop()!.trim() : "";
+  const clientIp = cfIp || lastForwarded || request.headers.get("x-real-ip") || "local";
 
   // 通过「请求头」把 IP 透传给下游 Server Action（必须用 request headers 透传，
   // 不能只写在 response 上——下游 headers() 读不到响应头）。
   const requestHeaders = new Headers(request.headers);
   requestHeaders.set("x-client-ip", clientIp);
+
+  // CSRF 纵深（V3）：浏览器发起的 POST 必定携带 Origin（同源/跨源皆然）。
+  // Next.js 内置校验只拦「Origin 不匹配」，可被「无 Origin 的 POST」绕过；
+  // 这里把缺失 Origin 的 POST 一律 403，封死该绕过，非浏览器脚本直调 Server Action 被拒。
+  if (request.method === "POST" && !request.headers.get("origin")) {
+    return new NextResponse("Forbidden: missing Origin", { status: 403 });
+  }
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
   response.headers.set("x-pathname", pathname);

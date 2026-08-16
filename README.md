@@ -7,6 +7,10 @@
 技术栈：Next.js 15（App Router）+ better-sqlite3（单文件数据库）+ 原生 SVG 纹饰。
 字体（Cinzel / EB Garamond）已自托管于 `public/fonts/`（`scripts/fetch-fonts.py` 可重新拉取），站内零外部依赖，国内网络亦不会白屏。
 
+## 安全文档
+
+安全事件调查、持续日志、应用审计和重建手册统一收录在 [`docs/security/`](docs/security/README.md)。当前 root 失陷事件的正式报告以该目录标记的“当前正式调查报告”为准。
+
 ## 本地运行
 
 ```bash

@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import RegisterForm from "./register-form";
 import { IonicColumn } from "@/components/decor";
+import { createCaptcha } from "@/lib/captcha";
 
 export const metadata: Metadata = { title: "入院注册" };
 
@@ -10,6 +11,7 @@ const REGISTER_ERRORS: Record<string, string> = {
   taken: "该雅号已被他人先行注册，请另起一名。",
   invite: "管理者的邀请函无效、已用或已作废。",
   regrate: "注册过于频繁，已触发防刷限制。请稍候十分钟再试，或联系管理者。",
+  captcha: "验证码答错了，请重新算出式子的得数。",
 };
 
 export default async function RegisterPage({
@@ -18,6 +20,8 @@ export default async function RegisterPage({
   searchParams: Promise<{ e?: string; tab?: string }>;
 }) {
   const { e, tab } = await searchParams;
+  // 注册页每次渲染出一道算式验证码：机器人无法预取囤积（一次性、5 分钟过期）。
+  const captcha = createCaptcha("register");
   return (
     <div style={{ maxWidth: 520, margin: "0 auto" }}>
       <section style={{ textAlign: "center", marginBottom: 24 }}>
@@ -35,7 +39,10 @@ export default async function RegisterPage({
           ✗ {REGISTER_ERRORS[e]}
         </p>
       )}
-      <RegisterForm initialTab={(tab === "admin" ? "admin" : "scholar") as "admin" | "scholar"} />
+      <RegisterForm
+        initialTab={(tab === "admin" ? "admin" : "scholar") as "admin" | "scholar"}
+        captcha={captcha}
+      />
     </div>
   );
 }

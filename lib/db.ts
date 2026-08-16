@@ -345,6 +345,32 @@ export function initSchema() {
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
 
+  // ---- 迁移：用户名不区分大小写唯一 ----
+  // 原 UNIQUE 约束区分大小写（"Rector" 与 "rector" 可并存），有人可借大小写变体取
+  // 他人同名卡名/冒名。先给历史库中后注册的大小写同名账号追加 #N 后缀去重，
+  // 再建 lower(username) 唯一索引（SQLite lower() 仅折叠 ASCII，中文名不受影响）。
+  const caseDups = db
+    .prepare("SELECT lower(username) AS lu FROM users GROUP BY lu HAVING COUNT(*) > 1")
+    .all() as { lu: string }[];
+  for (const d of caseDups) {
+    const rows = db
+      .prepare("SELECT id, username FROM users WHERE lower(username) = ? ORDER BY id")
+      .all(d.lu) as { id: number; username: string }[];
+    for (let i = 1; i < rows.length; i++) {
+      const base = rows[i].username.slice(0, 16);
+      let n = i + 1;
+      let name = `${base}#${n}`;
+      while (
+        db.prepare("SELECT 1 FROM users WHERE lower(username) = lower(?)").get(name)
+      ) {
+        n += 1;
+        name = `${base}#${n}`;
+      }
+      db.prepare("UPDATE users SET username = ? WHERE id = ?").run(name, rows[i].id);
+    }
+  }
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(lower(username))");
+
   // 将旧论文表升级为专业期刊模型（补列 + 扩展状态机），一次性重建
   if (!cols("papers").includes("manuscript_code")) {
     db.exec(`DROP TABLE IF EXISTS papers_new;`);

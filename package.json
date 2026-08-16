@@ -8,6 +8,7 @@
     "start": "next start",
     "seed": "node scripts/seed.mjs",
     "db:reset": "node scripts/db-reset.mjs",
+    "security:reset-access": "node scripts/incident-reset-access.mjs",
     "e2e": "node scripts/e2e.mjs",
     "public": "cloudflared tunnel --url http://localhost:3000"
   },

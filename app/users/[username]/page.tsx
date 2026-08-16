@@ -5,7 +5,8 @@ import { db } from "@/lib/db";
 import { userMapper } from "@/lib/db";
 import { listPapersByAuthor, listThreads } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
-import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, changePasswordAction, requestCertificationAction, respondCertificationAction } from "@/lib/actions";
+import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction } from "@/lib/actions";
+import ChangePasswordForm from "./change-password-form";
 import { getCertRelation } from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -103,34 +104,7 @@ export default async function UserPage({
             <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
               修改口令
             </summary>
-            <form action={changePasswordAction} style={{ marginTop: 12 }}>
-              <div className="field" style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 13 }}>当前口令</label>
-                <input
-                  name="current"
-                  type="password"
-                  autoComplete="current-password"
-                  style={{ fontFamily: "var(--serif)", color: "var(--ink)", background: "var(--parch-0)", border: "1px solid var(--line)", borderRadius: 3, padding: "8px 12px", width: "100%" }}
-                />
-              </div>
-              <div className="field" style={{ marginBottom: 10 }}>
-                <label style={{ fontSize: 13 }}>新口令（至少 6 位）</label>
-                <input
-                  name="next"
-                  type="password"
-                  autoComplete="new-password"
-                  style={{ fontFamily: "var(--serif)", color: "var(--ink)", background: "var(--parch-0)", border: "1px solid var(--line)", borderRadius: 3, padding: "8px 12px", width: "100%" }}
-                />
-              </div>
-              <button type="submit" className="btn btn-sm btn-gold" style={{ width: "100%" }}>更 新 口 令</button>
-              <p className="meta" style={{ marginTop: 8, fontSize: 12, textAlign: "center" }}>
-                改密后将注销你其他设备的登录，以防账号被盗用。
-                {sp?.e === "pwd" && <span style={{ color: "var(--maroon)" }}> · 当前口令错误</span>}
-                {sp?.e === "pwdlen" && <span style={{ color: "var(--maroon)" }}> · 新口令至少 6 位</span>}
-                {sp?.e === "pwdsame" && <span style={{ color: "var(--maroon)" }}> · 新口令不能与旧口令相同</span>}
-                {sp?.ok === "pwd" && <span style={{ color: "var(--gold-deep)" }}> · 口令已更新</span>}
-              </p>
-            </form>
+            <ChangePasswordForm e={sp?.e} ok={sp?.ok} />
           </details>
           </>
         )}
