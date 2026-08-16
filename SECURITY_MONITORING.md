@@ -19,9 +19,10 @@
 | 非 root 日常管理 | 建 `schola` 用户 + sudo，禁 root 直登 | ➕ harden-host.sh |
 | 部署密钥最小化 | authorized_keys 加 `command=` 限制只能跑部署 | ➕ 手动（见下） |
 
-**最关键的一条认知**：之前的灾难不是「应用被黑」，而是「应用被黑后一路升到 OS root」。
+**关于"难度的真实位置"（不夸大）**：之前的灾难不是「应用被黑」，而是「应用被黑后一路升到 OS root」。
 现在即使 Web 应用再被攻破，它也只跑在**非 root 容器**里、拿不到 docker.sock、真实 IP 还被 Tunnel 挡着——
-攻击者想再变 host root，难度比上次高一个量级。
+这**显著抬高**了对方从"应用漏洞"变"宿主 root"的门槛，但**不是保险箱**：若攻击者手里有 0day、或偷到部署密钥/Cloudflare 令牌，仍可能直达宿主。
+所以预防只是"加高墙"，真正的兜底见第三节（快照 + 离线日志）。
 
 ---
 
@@ -31,12 +32,24 @@
 下面两个脚本补上这块：
 
 ### `scripts/monitor.sh` — 入侵绊线（Detection Tripwire）
-每 15 分钟扫描：
+每 15 分钟扫描，**两层**：
+
+**第一层 签名式**（盯已知指纹，换密钥/改目录名即失效）：
 - 攻击公钥指纹 `root@jefferey-dmit-hk` 是否重现于任何 `authorized_keys`
 - `/opt/ops` 后门目录是否重建
 - 可疑 systemd 单元（含 sync.sh / schola-ops / /opt/ops）
 - SSH `PasswordAuthentication` 是否被悄悄重新打开、`PermitRootLogin` 是否被放宽
-- 名字可疑的未知常驻服务
+
+**第二层 行为式**（不依赖已知指纹，专门对付"高水平、会换马甲"的攻击者）：
+- 关键路径（sshd 配置 / systemd / cron / /opt / root 的 ssh 目录 / sudoers）**完整性基线**，任何新增/改动/删除都报
+- 不该监听的端口（除 sshd 端口与 `127.0.0.1:3000` 外，任何 `0.0.0.0`/`::` 监听即异常）
+- 从 `/tmp`、`/dev/shm`、`/var/tmp`、`/opt/ops` 跑的进程（反弹 shell / 内存马常用藏身处）
+- 新增 SUID/SGID 文件（提权常用）
+- 新增内核模块（LKM rootkit 迹象）
+- root 下出现非预期的交互式解释器（bash/sh/python/nc/socat…）
+
+**诚实的局限**：rootkit 可通过 LD_PRELOAD、可加载内核模块隐藏进程/端口/模块，行为式检测**只能缩短"被发现的时间"，不能保证 100% 拦住**。
+真正的底牌是 **DMIT 定时快照回滚 + auth.log 离线转发**（第三节）——本机被篡改也不影响这两条。
 
 触发则写 `/var/log/schola-security.log`，并可选推 `ALERT_WEBHOOK`、可选 `AUTO_SHUTDOWN=1` 直接关机。
 
@@ -69,6 +82,17 @@ command="cd /root/Schola-Haagen-Dazs && git pull && bash update.sh",no-port-forw
 2. **日志转发到独立日志机**：root 能改本机 `/var/log`，把 `auth.log` 实时转发到另一台机器，日志才可信、才追得到源头。
 
 ---
+
+## 三·五、当前仍未闭合的缺口（必须正视）
+
+| 缺口 | 说明 | 谁负责 |
+|---|---|---|
+| 🔴 **入口未查明** | 攻击者怎么拿的 root（SSH 密钥泄露？Web RCE？还是之前 root 列 bug 接成的提权链？）至今没查清。不堵入口，新系统装好还会被再来 | 新系统起来后必须查（auth.log 离线件 + `npm audit` + 审 `lib/actions.ts` 有无拼 shell） |
+| 🔴 **真实主机尚未重建验证** | 上述脚本/配置都已写好推上仓库，但**还没在真机上跑过**；"非 root 容器、localhost 绑定"等只验证过 compose 文件，未验证运行态 | 你重装完按 `DEPLOY_RECOVER.md` 执行并反馈，我才能确认真生效 |
+| 🟠 **秘密轮换未实际执行** | "假设一切已泄露"只是方针；DB 口令、Cloudflared 令牌、部署密钥、用户会话的**实际轮换**要在恢复时做（清 sessions + 重置口令 + 新隧道令牌） | 恢复流程里执行 |
+| 🟠 **部署密钥仍可能暴露** | 旧 `github-actions-deploy` 公钥当时在受陷主机 authorized_keys；若自动部署链路还在用旧私钥，需在新系统重新生成 | 新系统重新生成部署密钥对 |
+
+**结论**：架构和工具已就位（这是实打实做对的部分），但"做完"= 重建 + 查入口 + 轮换秘密 + 实测运行态，目前只完成了第一步的准备。
 
 ## 四、如果绊线再次触发
 
