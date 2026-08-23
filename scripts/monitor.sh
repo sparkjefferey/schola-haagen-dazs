@@ -48,8 +48,8 @@ done
 # 4) SSH 防护被悄悄撤掉
 grep -rqiE '^\s*PasswordAuthentication\s+yes' /etc/ssh/sshd_config 2>/dev/null \
   && ALERTS+=("签名匹配: SSH PasswordAuthentication 被重新启用")
-grep -rqiE '^\s*PermitRootLogin\s+(yes|without-password|prohibit-password)' /etc/ssh/sshd_config 2>/dev/null \
-  && ALERTS+=("签名匹配: PermitRootLogin 被放宽（应为 no）")
+grep -rqiE '^\s*PermitRootLogin\s+yes' /etc/ssh/sshd_config 2>/dev/null \
+  && ALERTS+=("签名匹配: PermitRootLogin 被设为 yes（允许 root 密码登录，危险）")
 
 # ---------- 第二层：行为式（不依赖已知指纹） ----------
 # 5) 关键目录/文件完整性基线（首次运行建立，之后任何改动都报）
@@ -132,7 +132,7 @@ if [ -d /sys/module ]; then
 fi
 
 # 10) 非预期进程以 root 运行（允许列表之外出现交互式 shell / 脚本解释器）
-ALLOWED_ROOT_PROCS="sshd|systemd|containerd|dockerd|cloudflared|cron|rsyslog|dbus|networkd|udevd?|nginx|node|monitor.sh|harden-host.sh|update.sh|deploy.sh"
+ALLOWED_ROOT_PROCS="sshd|systemd|containerd|dockerd|cloudflared|cron|rsyslog|dbus|networkd|udevd?|nginx|node|monitor.sh|harden-host.sh|update.sh|deploy.sh|tuned|packagekit|unattended|needrestart"
 while read -r user pid cmd; do
   [ "$user" = "root" ] || continue
   # 只盯真正的交互 shell / 解释器
