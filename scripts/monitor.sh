@@ -60,7 +60,7 @@ if [ ! -f "$BASELINE" ]; then
   # 受信首次运行（harden 之后）建基线
   for d in "${MON_DIRS[@]}"; do
     [ -e "$d" ] && find "$d" -type f 2>/dev/null
-  done | sort -u | while read -r f; do
+  done | LC_ALL=C sort -u | while read -r f; do
     sha256sum "$f" 2>/dev/null
   done > "$BASELINE" 2>/dev/null
   echo "$(date -Iseconds) 已建立完整性基线: $BASELINE" >> "$LOG"
@@ -68,14 +68,14 @@ else
   CUR=$(mktemp)
   for d in "${MON_DIRS[@]}"; do
     [ -e "$d" ] && find "$d" -type f 2>/dev/null
-  done | sort -u | while read -r f; do
+  done | LC_ALL=C sort -u | while read -r f; do
     sha256sum "$f" 2>/dev/null
   done > "$CUR" 2>/dev/null
   # 新增 / 改动 的文件
-  comm -13 <(cut -d' ' -f2- "$BASELINE" | sort -u) <(cut -d' ' -f2- "$CUR" | sort -u) \
+  comm -13 <(cut -d' ' -f2- "$BASELINE" | LC_ALL=C sort -u) <(cut -d' ' -f2- "$CUR" | LC_ALL=C sort -u) \
     | while read -r nf; do ALERTS+=("行为异常: 关键路径新增/改动文件 $nf"); done
   # 被删的文件（基线有、现在无）
-  comm -23 <(cut -d' ' -f2- "$BASELINE" | sort -u) <(cut -d' ' -f2- "$CUR" | sort -u) \
+  comm -23 <(cut -d' ' -f2- "$BASELINE" | LC_ALL=C sort -u) <(cut -d' ' -f2- "$CUR" | LC_ALL=C sort -u) \
     | while read -r df; do ALERTS+=("行为异常: 关键路径文件被删除 $df"); done
   rm -f "$CUR"
 fi
@@ -109,7 +109,7 @@ done
 # 8) 新增 SUID/SGID 文件（提权常用）
 SUID_NOW=$(mktemp)
 find / \( -path /proc -o -path /sys -o -path /var/lib/docker \) -prune -o \
-  -type f \( -perm -4000 -o -perm -2000 \) -print 2>/dev/null | sort -u > "$SUID_NOW"
+  -type f \( -perm -4000 -o -perm -2000 \) -print 2>/dev/null | LC_ALL=C sort -u > "$SUID_NOW"
 if [ -f "$BASE_DIR/suid.baseline" ]; then
   comm -13 "$BASE_DIR/suid.baseline" "$SUID_NOW" | while read -r s; do
     ALERTS+=("行为异常: 新增 SUID/SGID 文件 $s")
@@ -121,7 +121,7 @@ rm -f "$SUID_NOW"
 
 # 9) 已加载内核模块变化（LKM rootkit 迹象）
 if [ -d /sys/module ]; then
-  MOD_NOW=$(ls /sys/module | sort -u)
+  MOD_NOW=$(ls /sys/module | LC_ALL=C sort -u)
   if [ -f "$BASE_DIR/modules.baseline" ]; then
     comm -13 "$BASE_DIR/modules.baseline" <(echo "$MOD_NOW") | while read -r m; do
       ALERTS+=("行为异常: 新增内核模块 $m")
