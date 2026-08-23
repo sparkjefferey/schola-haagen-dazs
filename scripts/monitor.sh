@@ -18,6 +18,9 @@ BASE_DIR=/var/lib/schola-tripwire
 BASELINE="$BASE_DIR/baseline.sha"
 PROC_BASELINE="$BASE_DIR/procs.sha"
 SSH_PORT="${SSH_PORT:-22}"
+# 允许的「对外监听」端口白名单（逗号/空格分隔）。DMIT 镜像自带 RustDesk
+# 远程协助(hbbs/hbbr)会占用这些端口，属厂商正常服务，不应误报。
+ALLOWED_PUBLIC_PORTS="${ALLOWED_PUBLIC_PORTS:-21115 21116 21117 21118 21119}"
 
 # 攻击者公钥指纹中的唯一片段（来自 2026-08-15 取证）
 ATTACK_KEY="DERLxCN6MRokchXQNQPJhN8TsInhv56xYmRUdr7VpDM9"
@@ -87,6 +90,10 @@ if command -v ss >/dev/null 2>&1; then
     # 跳过期望项：sshd 端口、本地 3000
     [ "$port" = "$SSH_PORT" ] && continue
     [ "$port" = "3000" ] && case "$addr" in 127.*|::1|localhost) continue;; esac
+    # 跳过白名单端口（DMIT RustDesk 等厂商正常服务）
+    for wp in $ALLOWED_PUBLIC_PORTS; do
+      [ "$port" = "$wp" ] && continue 2
+    done
     ALERTS+=("行为异常: 发现意外监听 $addr:$port")
   done < <(ss -tlnp 2>/dev/null | grep -E ':(0\.0\.0\.0|\[?::\]?)' | awk '{print $4}')
 fi
