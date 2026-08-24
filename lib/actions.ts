@@ -22,6 +22,8 @@ import {
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
+import { notifyWeakPassword } from "@/lib/email";
+import { passwordStrength } from "@/lib/password-strength";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
 import { consumeFixedWindow, resetFixedWindow, peekFixedWindow, rateLimitFingerprint } from "@/lib/rate-limit";
 import { verifyCaptcha } from "@/lib/captcha";
@@ -76,6 +78,7 @@ export async function registerUser(formData: FormData) {
   const password = String(formData.get("password") ?? "");
   const displayName = String(formData.get("display_name") ?? "").trim().slice(0, 24) || username;
   const motto = String(formData.get("motto") ?? "").trim().slice(0, 80);
+  const email = String(formData.get("email") ?? "").trim().toLowerCase().slice(0, 120);
   const role = String(formData.get("role") ?? "scholar") as "admin" | "scholar";
   const invite = String(formData.get("invite") ?? "").trim();
   const captchaId = String(formData.get("captcha_id") ?? "").trim();
@@ -84,6 +87,8 @@ export async function registerUser(formData: FormData) {
 
   if (!USERNAME_RE.test(username)) redirect(`/register?e=user${roleTab}`);
   if (password.length < 6 || password.length > 256) redirect(`/register?e=pass${roleTab}`);
+  // 邮箱：格式粗校验（不收邮件时不强求，但填了就必须是合法格式）；用于接收口令安全提醒等系统邮件。
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) redirect(`/register?e=email${roleTab}`);
   if (role !== "admin" && role !== "scholar") redirect("/register?e=user");
 
   // 蜜罐（呆脚本过滤器）：人类看不见的隐藏字段被填了 = 机器在操作，
@@ -124,9 +129,9 @@ export async function registerUser(formData: FormData) {
   // （changes = 0 即撞名被拒），避免两个同时请求都通过预检后一方报 500。
   const info = db
     .prepare(
-      "INSERT OR IGNORE INTO users (username, display_name, password_hash, role, motto, root) VALUES (?, ?, ?, ?, ?, 0)",
+      "INSERT OR IGNORE INTO users (username, display_name, password_hash, role, motto, email, root) VALUES (?, ?, ?, ?, ?, ?, 0)",
     )
-    .run(username, displayName, hashPassword(password), role, motto);
+    .run(username, displayName, hashPassword(password), role, motto, email);
   if (info.changes === 0) redirect(`/register?e=taken${roleTab}`);
 
   if (role === "scholar") {
@@ -137,6 +142,12 @@ export async function registerUser(formData: FormData) {
     info.lastInsertRowid as number,
     "欢迎入学 Schola Häagen-Dazs！此间为学派同侪论学、刊文、互证之所。若有疑义或建言，可赴『讯息』向管理者陈情。",
   );
+
+  // 弱口令提醒：注册时即设了弱口令的用户，双通道（站内消息 + 真邮件）提示其加强。
+  const newId = info.lastInsertRowid as number;
+  if (passwordStrength(password).level === "weak") {
+    await notifyWeakPassword({ userId: newId, email, username });
+  }
 
   redirect(`/login?registered=${encodeURIComponent(username)}`);
 }
@@ -681,8 +692,28 @@ export async function changePasswordAction(formData: FormData) {
   const token = (await store()).get("schola_session")?.value;
   db.prepare("DELETE FROM sessions WHERE user_id = ? AND token IS NOT ?").run(me.id, token ?? "__none__");
   logAudit(me.id, "account.password", `@${me.username}`, "自助修改口令（其余会话已吊销）");
+
+  // 弱口令提醒：若新口令仍为「弱」等级，双通道（站内消息 + 真邮件）提示其加强。
+  if (passwordStrength(next).level === "weak") {
+    const u = db.prepare("SELECT email FROM users WHERE id = ?").get(me.id) as { email: string } | undefined;
+    await notifyWeakPassword({ userId: me.id, email: u?.email ?? "", username: me.username });
+  }
+
   revalidatePath(`/users/${me.username}`);
   redirect(`/users/${me.username}?ok=pwd`);
+}
+
+/** 自助更新联系邮箱（仅本人，用于接收口令安全提醒等系统邮件）。留空即清除。 */
+export async function updateEmailAction(formData: FormData) {
+  const me = await requireLogin();
+  let email = String(formData.get("email") ?? "").trim().toLowerCase().slice(0, 120);
+  if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    redirect(`/users/${me.username}?e=emailfmt`);
+  }
+  db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, me.id);
+  logAudit(me.id, "account.email", `@${me.username}`, email ? "更新联系邮箱" : "清除联系邮箱");
+  revalidatePath(`/users/${me.username}`);
+  redirect(`/users/${me.username}?ok=email`);
 }
 
 export async function setUserEndorsedAction(userId: number, endorsed: 0 | 1) {

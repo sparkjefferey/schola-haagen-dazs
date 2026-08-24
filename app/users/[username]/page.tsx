@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { userMapper } from "@/lib/db";
 import { listPapersByAuthor, listThreads } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
-import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction } from "@/lib/actions";
+import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction } from "@/lib/actions";
 import ChangePasswordForm from "./change-password-form";
 import { getCertRelation } from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
@@ -105,6 +105,40 @@ export default async function UserPage({
               修改口令
             </summary>
             <ChangePasswordForm e={sp?.e} ok={sp?.ok} />
+          </details>
+          <details style={{ marginTop: 18, textAlign: "left", maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
+              联系邮箱
+            </summary>
+            <form action={updateEmailAction} style={{ marginTop: 12 }}>
+              <div className="field" style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 13 }}>电子邮箱</label>
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  defaultValue={user.email || ""}
+                  placeholder="you@example.com"
+                  style={{
+                    fontFamily: "var(--serif)",
+                    color: "var(--ink)",
+                    background: "var(--parch-0)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 3,
+                    padding: "8px 12px",
+                    width: "100%",
+                  }}
+                />
+              </div>
+              <button type="submit" className="btn btn-sm btn-gold" style={{ width: "100%" }}>
+                保 存 邮 箱
+              </button>
+              <p className="meta" style={{ marginTop: 8, fontSize: 12, textAlign: "center" }}>
+                用于接收弱口令等系统安全提醒；留空即清除。不会公开展示。
+                {sp?.e === "emailfmt" && <span style={{ color: "var(--maroon)" }}> · 邮箱格式不正确</span>}
+                {sp?.ok === "email" && <span style={{ color: "var(--gold-deep)" }}> · 已保存</span>}
+              </p>
+            </form>
           </details>
           </>
         )}

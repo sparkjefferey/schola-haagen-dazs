@@ -91,6 +91,7 @@ function toAuthor(r: any): SafeUser {
     banned_reason: r.banned_reason || "",
     endorsed: r.endorsed || 0,
     root: r.root || 0,
+    email: r.email || "",
     created_at: r.user_created_at ?? r.created_at,
   };
 }
@@ -184,6 +185,7 @@ export function getPaper(id: number): (Paper & { author: SafeUser; authors: Pape
       banned_reason: a.banned_reason,
       endorsed: a.endorsed,
       root: a.root,
+      email: a.email || "",
       created_at: a.created_at,
     },
     authors: paperAuthors(p.id),

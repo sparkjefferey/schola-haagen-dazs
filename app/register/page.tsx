@@ -12,6 +12,7 @@ const REGISTER_ERRORS: Record<string, string> = {
   invite: "管理者的邀请函无效、已用或已作废。",
   regrate: "注册过于频繁，已触发防刷限制。请稍候十分钟再试，或联系管理者。",
   captcha: "验证码答错了，请重新算出式子的得数。",
+  email: "邮箱格式不正确，请检查（例如 you@example.com）。",
 };
 
 export default async function RegisterPage({

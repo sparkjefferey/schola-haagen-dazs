@@ -27,6 +27,7 @@ await page.fill("#r-user", uname);
 await page.fill("#r-name", "试验学士");
 await page.fill("#r-pass", "test1234");
 await page.fill("#r-motto", "学海无涯，冷食作舟");
+await page.fill("#r-email", "test@example.com");
 await page.click("button:has-text('入 派 成 学')");
 await page.waitForURL("**/login**");
 check("注册成功跳转登学", page.url().includes("/login?registered="));

@@ -7,6 +7,7 @@ if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 export const db = new Database(path.join(dataDir, "schola.db"));
 db.pragma("journal_mode = WAL");
+db.pragma("busy_timeout = 5000");
 db.pragma("foreign_keys = ON");
 
 export type Role = "admin" | "scholar";
@@ -18,6 +19,7 @@ export interface User {
   password_hash: string;
   role: Role;
   motto: string;
+  email: string;
   status: "active" | "banned" | "retired";
   endorsed: number;
   banned_reason: string;
@@ -335,13 +337,20 @@ export function initSchema() {
 
   const addCol = (table: string, col: string, ddl: string) => {
     if (!cols(table).includes(col)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      try {
+        db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+      } catch (e: any) {
+        // 容忍并发/重复执行时的「duplicate column name」（如 Next 构建期多路由并发导入本模块，
+        // 各自开连接跑迁移，一方提交后另一方再 ALTER 即报重复）。已是幂等安全，忽略即可。
+        if (!/duplicate column/i.test(e?.message ?? "")) throw e;
+      }
     }
   };
   addCol("users", "status", "status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','banned','retired'))");
   addCol("users", "banned_reason", "banned_reason TEXT NOT NULL DEFAULT ''");
   addCol("users", "endorsed", "endorsed INTEGER NOT NULL DEFAULT 0");
   addCol("users", "root", "root INTEGER NOT NULL DEFAULT 0");
+  addCol("users", "email", "email TEXT NOT NULL DEFAULT ''");
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
 
@@ -496,6 +505,7 @@ export const userMapper = (row: any): SafeUser => ({
   display_name: row.display_name,
   role: row.role,
   motto: row.motto,
+  email: row.email ?? "",
   status: row.status,
   banned_reason: row.banned_reason,
   endorsed: row.endorsed,

@@ -84,6 +84,17 @@ export default function RegisterForm({
           <label htmlFor="r-motto">座 右 铭（可选）</label>
           <input id="r-motto" name="motto" maxLength={80} placeholder="将见于你的名册与学榜" />
         </div>
+        <div className="field">
+          <label htmlFor="r-email">电 子 邮 箱（可选，用于接收口令安全提醒）</label>
+          <input
+            id="r-email"
+            name="email"
+            type="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <p className="hint">用于接收弱口令等系统安全提醒；不会公开展示。不填也可入学，日后可在名册中补填。</p>
+        </div>
 
         <div className="field">
           <label htmlFor="r-cap">验 明 正 身</label>
