@@ -274,6 +274,52 @@ export function EditorialActions({
   );
 }
 
+export function RenameRowActions({
+  requestId,
+  newUsername,
+}: {
+  requestId: number;
+  newUsername: string;
+}) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function act(approve: boolean) {
+    let note = "";
+    if (!approve) {
+      note = window.prompt(`婉拒改名（→ @${newUsername}）—— 掌门留谕（可选，将告申请人）：`) ?? "";
+      if (note === null) return;
+    } else if (!window.confirm(`应允后即执行改名 → @${newUsername}，旧名保留重定向。`)) {
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const { respondRenameAction } = await import("@/lib/actions");
+      await respondRenameAction(requestId, approve, note);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "处置未成");
+    }
+    setBusy(false);
+  }
+
+  return (
+    <span style={{ display: "inline-flex", gap: 6 }}>
+      <button className="btn btn-sm btn-gold" onClick={() => act(true)} disabled={busy}>
+        应 允
+      </button>
+      <button className="btn btn-sm" onClick={() => act(false)} disabled={busy}>
+        婉 拒
+      </button>
+      {error && (
+        <div style={{ fontSize: 12.5, color: "var(--maroon)", width: "100%" }}>{error}</div>
+      )}
+    </span>
+  );
+}
+
 export function ReportRowActions({
   reportId,
 }: {

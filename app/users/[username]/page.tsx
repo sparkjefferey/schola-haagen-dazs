@@ -1,11 +1,11 @@
 import { Metadata } from "next";
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { userMapper } from "@/lib/db";
 import { listPapersByAuthor, listThreads } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
-import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction } from "@/lib/actions";
+import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction, requestRenameAction } from "@/lib/actions";
 import ChangePasswordForm from "./change-password-form";
 import { getCertRelation } from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
@@ -46,11 +46,34 @@ export default async function UserPage({
   const { username: rawUsername } = await params;
   const username = safeDecodeSegment(rawUsername);
   const sp = await searchParams;
-  const row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
-  if (!row) notFound();
+  let row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
+  if (!row) {
+    // 曾用名回查：改名后旧链接（他人分享的书签/论坛引用）重定向到新名册
+    const hist = db
+      .prepare(
+        "SELECT user_id FROM username_history WHERE old_username = ? ORDER BY id DESC LIMIT 1",
+      )
+      .get(username) as { user_id: number } | undefined;
+    if (hist) {
+      const cur = db
+        .prepare("SELECT username FROM users WHERE id = ?")
+        .get(hist.user_id) as { username: string } | undefined;
+      if (cur) redirect(`/users/${encodeURIComponent(cur.username)}`);
+    }
+    notFound();
+  }
   const user = userMapper(row);
   const me = await getSessionUser();
   const isSelf = !!me && me.id === user.id;
+
+  // 本人名下待掌门审核的改名申请（有待审申请则不显示提交表单）
+  const pendingRename = isSelf
+    ? (db
+        .prepare(
+          "SELECT new_username FROM username_changes WHERE requester_id = ? AND status = 'pending' ORDER BY id DESC LIMIT 1",
+        )
+        .get(user.id) as { new_username: string } | undefined)
+    : undefined;
 
   const papers = listPapersByAuthor(user.id, { includePending: true });
   const threads = listThreads().filter((t) => t.author_id === user.id);
@@ -105,6 +128,69 @@ export default async function UserPage({
               修改口令
             </summary>
             <ChangePasswordForm e={sp?.e} ok={sp?.ok} />
+          </details>
+          <details style={{ marginTop: 18, textAlign: "left", maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
+              更改用户名
+            </summary>
+            {pendingRename ? (
+              <p className="meta" style={{ marginTop: 12, textAlign: "center" }}>
+                已申请改名为 <span className="badge">@{pendingRename.new_username}</span>，待掌门审核。审核期间不可再次提交。
+              </p>
+            ) : (
+              <form action={requestRenameAction} style={{ marginTop: 12 }}>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 13 }}>新用户名</label>
+                  <input
+                    name="new_username"
+                    type="text"
+                    autoComplete="off"
+                    maxLength={20}
+                    placeholder="2–20 位：字母/数字/_/-/中文"
+                    style={{
+                      fontFamily: "var(--serif)",
+                      color: "var(--ink)",
+                      background: "var(--parch-0)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 3,
+                      padding: "8px 12px",
+                      width: "100%",
+                    }}
+                  />
+                </div>
+                <div className="field" style={{ marginBottom: 10 }}>
+                  <label style={{ fontSize: 13 }}>缘由（可选）</label>
+                  <input
+                    name="reason"
+                    type="text"
+                    maxLength={120}
+                    placeholder="何以更名，可告掌门"
+                    style={{
+                      fontFamily: "var(--serif)",
+                      color: "var(--ink)",
+                      background: "var(--parch-0)",
+                      border: "1px solid var(--line)",
+                      borderRadius: 3,
+                      padding: "8px 12px",
+                      width: "100%",
+                    }}
+                  />
+                </div>
+                <button type="submit" className="btn btn-sm btn-gold" style={{ width: "100%" }}>
+                  提 交 改 名 申 请
+                </button>
+                <p className="meta" style={{ marginTop: 8, fontSize: 12, textAlign: "center" }}>
+                  改名须掌门应允；7 天内仅可申请一次。应允后旧名仍可跳转至新名册。
+                  {sp?.e === "renamefmt" && <span style={{ color: "var(--maroon)" }}> · 用户名不合规（2–20 位，仅限字母/数字/_/-/中文）</span>}
+                  {sp?.e === "renamesame" && <span style={{ color: "var(--maroon)" }}> · 新名与现名相同</span>}
+                  {sp?.e === "renamereserved" && <span style={{ color: "var(--maroon)" }}> · 此名不可用</span>}
+                  {sp?.e === "renametaken" && <span style={{ color: "var(--maroon)" }}> · 此名已被他人占用</span>}
+                  {sp?.e === "renamepending" && <span style={{ color: "var(--maroon)" }}> · 已有待审申请，请待掌门处置</span>}
+                  {sp?.e === "renamecooldown" && <span style={{ color: "var(--maroon)" }}> · 距上次申请未满 7 天，请稍候</span>}
+                  {sp?.ok === "rename" && <span style={{ color: "var(--gold-deep)" }}> · 申请已递交，待掌门审核</span>}
+                </p>
+              </form>
+            )}
           </details>
           <details style={{ marginTop: 18, textAlign: "left", maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
             <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
