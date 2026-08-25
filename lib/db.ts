@@ -165,6 +165,19 @@ export interface Certification {
   responded_at: string | null;
 }
 
+export interface UsernameChange {
+  id: number;
+  requester_id: number;
+  old_username: string;
+  new_username: string;
+  reason: string;
+  status: "pending" | "approved" | "declined";
+  responded_by: number | null;
+  responded_at: string | null;
+  response_note: string;
+  created_at: string;
+}
+
 export const FORUM_CATEGORIES = [
   "学术交流",
   "冷食哲学",
@@ -329,6 +342,31 @@ export function initSchema() {
       window_end INTEGER NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_rate_limit_window_end ON rate_limit_windows(window_end);
+
+    -- 用户名改名：用户提交申请，掌门审核通过后执行改名（申请审核制）
+    CREATE TABLE IF NOT EXISTS username_changes (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      requester_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      old_username  TEXT NOT NULL,
+      new_username  TEXT NOT NULL,
+      reason        TEXT NOT NULL DEFAULT '',
+      status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','declined')),
+      responded_by  INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      responded_at  TEXT,
+      response_note TEXT NOT NULL DEFAULT '',
+      created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_username_changes_requester ON username_changes(requester_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_username_changes_status ON username_changes(status, id);
+
+    -- 曾用名：改名后旧链接（/users/旧名）可重定向到新名册
+    CREATE TABLE IF NOT EXISTS username_history (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      old_username TEXT NOT NULL,
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_username_history_old ON username_history(old_username);
   `);
 
   // ---- 轻量迁移（老库补列） ----

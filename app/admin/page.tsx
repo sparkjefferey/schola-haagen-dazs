@@ -7,6 +7,7 @@ import {
   DeleteButtons,
   EditorialActions,
   ReportRowActions,
+  RenameRowActions,
   EndorseToggle,
   StatusButtons,
 } from "./admin-actions";
@@ -36,6 +37,7 @@ const TABS = [
   ["overview", "总览"],
   ["reviews", "掌门审稿箱"],
   ["reports", "检举信箱"],
+  ["renames", "改名司"],
   ["invites", "徽章司·邀请"],
   ["announcements", "谕令"],
   ["content", "文宣司"],
@@ -66,6 +68,14 @@ export default async function AdminPage({
   );
   const pending = listReviewQueue();
   const reports = listReports();
+  const renames = db
+    .prepare(
+      `SELECT c.*, u.display_name AS requester_name, u.status AS requester_status
+       FROM username_changes c
+       LEFT JOIN users u ON u.id = c.requester_id
+       ORDER BY (c.status = 'pending') DESC, c.id DESC LIMIT 50`,
+    )
+    .all() as any[];
   const invites = listInvites();
   const announcements = listAnnouncements();
   const contents = getContentMap();
@@ -151,6 +161,10 @@ export default async function AdminPage({
 
       {active === "reports" && (
         <RenderReports reports={reports as any[]} />
+      )}
+
+      {active === "renames" && (
+        <RenderRenames renames={renames} />
       )}
 
       {active === "invites" && (
@@ -262,6 +276,34 @@ function RenderReports({ reports }: { reports: any[] }) {
             </p>
           </div>
           <ReportRowActions reportId={r.id} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function RenderRenames({ renames }: { renames: any[] }) {
+  const pending = renames.filter((r) => r.status === "pending");
+  if (pending.length === 0)
+    return <p className="empty-note">改名司清净——暂无待审的改名申请。</p>;
+  return (
+    <div className="card" style={{ padding: "6px 20px 12px" }}>
+      <p className="meta" style={{ margin: "6px 0 12px" }}>
+        共 {pending.length} 件改名申请待掌门裁决。应允即当场更名，旧名留作曾用名重定向；婉拒可附谕令告申请人。
+      </p>
+      {pending.map((r) => (
+        <div className="item" key={r.id} style={{ alignItems: "center" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <Link href={`/users/${r.old_username}`} style={{ fontWeight: 700 }}>
+              {r.requester_name || `#${r.requester_id}`}
+            </Link>{" "}
+            （@{r.old_username}）→ <b>@{r.new_username}</b>
+            <div className="meta">
+              {timeAgo(r.created_at)}
+              {r.reason ? ` · 事由：「${r.reason}」` : ""}
+            </div>
+          </div>
+          <RenameRowActions requestId={r.id} newUsername={r.new_username} />
         </div>
       ))}
     </div>
