@@ -13,10 +13,13 @@ docs/security/
 │   └── INCIDENT_REPORT_LEGACY.md
 ├── audits/
 │   └── SECURITY_ADVERSARIAL_REPORT.md
-└── runbooks/
-    ├── INCIDENT_RECOVERY.md
-    ├── DEPLOY_RECOVER.md
-    └── SECURITY_MONITORING.md
+├── runbooks/
+│   ├── INCIDENT_RECOVERY.md
+│   ├── DEPLOY_RECOVER.md
+│   └── SECURITY_MONITORING.md
+├── vendor/
+│   └── security-skills/   # 第三方安全技能包（Anthropic security skills，只读参考）
+└── reports/               # 本地安全分析产物（gitignored，不入库）
 ```
 
 ## 文件用途与可信状态

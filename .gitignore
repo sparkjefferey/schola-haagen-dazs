@@ -9,7 +9,12 @@ data/
 .workbuddy/
 # 部署时由 update.sh 自动生成，记录线上 commit，不应入库
 public/version.json
-security-reports/
+# 本地安全分析产物（已归档到 docs/security/reports/）
+docs/security/reports/
 ownership-map-out/
+# 数据库备份（recover/ 已并入）
+backups/
+# TypeScript 增量编译缓存
+tsconfig.tsbuildinfo
 # 本地部署私钥/公钥（绝不可入库）
 .deploy-keys/

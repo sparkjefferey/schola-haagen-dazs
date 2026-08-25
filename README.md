@@ -115,5 +115,13 @@ app/            页面（App Router）
 components/     SVG 纹饰、徽章、头像等
 lib/            db / auth / actions / queries / fmt / md
 scripts/        种子与重置
-Dockerfile      VPS 部署
+docs/           文档
+  deploy/      部署指南（DEPLOY.md）
+  plans/       规划文档（微信绑定、周主题）
+  design-refs/ 设计参考截图
+  security/    安全文档中心（含 vendor/ 第三方技能包、reports/ 本地分析产物）
+backups/       数据库备份（gitignored）
+deploy.sh      一键部署（服务器上运行，勿移出根目录）
+update.sh      更新脚本（CI 与服务器 command= 限制引用，勿移出根目录）
+Dockerfile     VPS 部署
 ```
