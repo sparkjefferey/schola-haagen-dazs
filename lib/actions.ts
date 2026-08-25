@@ -30,6 +30,10 @@ import { verifyCaptcha } from "@/lib/captcha";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
+/** Location 头不能含非 ASCII 字符：用户名/查询值可能是中文，redirect 前必须百分号编码，
+ *  个人页 safeDecodeSegment 会解码（含手机 WebView 双重编码场景）。 */
+const enc = (s: string) => encodeURIComponent(s);
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -656,21 +660,21 @@ export async function setUserRoleAction(userId: number, role: "admin" | "scholar
 // 与注册时管理者就任共用同一套邀请函校验逻辑。
 export async function claimAdminAction(formData: FormData) {
   const me = await requireLogin();
-  if (me.role === "admin") redirect(`/users/${me.username}`);
-  if (me.status !== "active") redirect(`/users/${me.username}`);
+  if (me.role === "admin") redirect(`/users/${enc(me.username)}`);
+  if (me.status !== "active") redirect(`/users/${enc(me.username)}`);
 
   const code = String(formData.get("invite") ?? "").trim().toUpperCase();
   // 只允许 R- 开头的管理者邀请函；开放 ADMIN_INVITE 环境变量时也可作为通用凭据
   const valid =
     consumeInvite(code, "admin") ||
     (!!process.env.ADMIN_INVITE && process.env.ADMIN_INVITE.trim() !== "" && process.env.ADMIN_INVITE === code);
-  if (!valid) redirect(`/users/${me.username}?e=invite`);
+  if (!valid) redirect(`/users/${enc(me.username)}?e=invite`);
 
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(me.id);
   logAudit(me.id, "admin.claim", `@${me.username}`, "凭邀请函就任管理者");
   sendSystemMessage(me.id, "你已凭邀请函就任学派管理者，自此可入燕京阁调度学务。");
   revalidatePath(`/users/${me.username}`);
-  redirect(`/users/${me.username}?ok=就任`);
+  redirect(`/users/${enc(me.username)}?ok=${enc("就任")}`);
 }
 
 /** 自助改密码：仅本人可改，需先验证旧密码，再会话续期。 */
@@ -681,10 +685,10 @@ export async function changePasswordAction(formData: FormData) {
 
   const row = db.prepare("SELECT password_hash FROM users WHERE id = ?").get(me.id) as any;
   if (!row || !verifyPassword(current, row.password_hash)) {
-    redirect(`/users/${me.username}?e=pwd`);
+    redirect(`/users/${enc(me.username)}?e=pwd`);
   }
-  if (next.length < 6 || next.length > 256) redirect(`/users/${me.username}?e=pwdlen`);
-  if (next === current) redirect(`/users/${me.username}?e=pwdsame`);
+  if (next.length < 6 || next.length > 256) redirect(`/users/${enc(me.username)}?e=pwdlen`);
+  if (next === current) redirect(`/users/${enc(me.username)}?e=pwdsame`);
 
   db.prepare("UPDATE users SET password_hash = ? WHERE id = ?").run(hashPassword(next), me.id);
   // 改密后吊销其他设备的会话，只保留当前会话，防止被盗用
@@ -700,7 +704,7 @@ export async function changePasswordAction(formData: FormData) {
   }
 
   revalidatePath(`/users/${me.username}`);
-  redirect(`/users/${me.username}?ok=pwd`);
+  redirect(`/users/${enc(me.username)}?ok=pwd`);
 }
 
 /** 自助更新联系邮箱（仅本人，用于接收口令安全提醒等系统邮件）。留空即清除。 */
@@ -708,12 +712,12 @@ export async function updateEmailAction(formData: FormData) {
   const me = await requireLogin();
   let email = String(formData.get("email") ?? "").trim().toLowerCase().slice(0, 120);
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-    redirect(`/users/${me.username}?e=emailfmt`);
+    redirect(`/users/${enc(me.username)}?e=emailfmt`);
   }
   db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, me.id);
   logAudit(me.id, "account.email", `@${me.username}`, email ? "更新联系邮箱" : "清除联系邮箱");
   revalidatePath(`/users/${me.username}`);
-  redirect(`/users/${me.username}?ok=email`);
+  redirect(`/users/${enc(me.username)}?ok=email`);
 }
 
 // ==================== 用户名改名（申请 + 掌门审核） ====================
@@ -735,28 +739,28 @@ function lastRenameRequestAt(userId: number): number | null {
 /** 本人提交改名申请。 */
 export async function requestRenameAction(formData: FormData) {
   const me = await requireLogin();
-  if (me.status !== "active") redirect(`/users/${me.username}`);
+  if (me.status !== "active") redirect(`/users/${enc(me.username)}`);
   const newUsername = String(formData.get("new_username") ?? "").trim();
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 120);
 
-  if (!USERNAME_RE.test(newUsername)) redirect(`/users/${me.username}?e=renamefmt`);
-  if (newUsername === me.username) redirect(`/users/${me.username}?e=renamesame`);
+  if (!USERNAME_RE.test(newUsername)) redirect(`/users/${enc(me.username)}?e=renamefmt`);
+  if (newUsername === me.username) redirect(`/users/${enc(me.username)}?e=renamesame`);
   // 创始掌门名保留：不得改名为 rector，防止日后有人抢注该名，破坏启动时的创始人修复逻辑
-  if (newUsername.toLowerCase() === "rector") redirect(`/users/${me.username}?e=renamereserved`);
+  if (newUsername.toLowerCase() === "rector") redirect(`/users/${enc(me.username)}?e=renamereserved`);
 
   const taken = db
     .prepare("SELECT 1 FROM users WHERE lower(username) = lower(?)")
     .get(newUsername);
-  if (taken) redirect(`/users/${me.username}?e=renametaken`);
+  if (taken) redirect(`/users/${enc(me.username)}?e=renametaken`);
 
   const pending = db
     .prepare("SELECT 1 FROM username_changes WHERE requester_id = ? AND status = 'pending' LIMIT 1")
     .get(me.id);
-  if (pending) redirect(`/users/${me.username}?e=renamepending`);
+  if (pending) redirect(`/users/${enc(me.username)}?e=renamepending`);
 
   const last = lastRenameRequestAt(me.id);
   if (last !== null && Date.now() - last < RENAME_COOLDOWN_MS) {
-    redirect(`/users/${me.username}?e=renamecooldown`);
+    redirect(`/users/${enc(me.username)}?e=renamecooldown`);
   }
 
   db.prepare(
@@ -764,7 +768,7 @@ export async function requestRenameAction(formData: FormData) {
   ).run(me.id, me.username, newUsername, reason);
   logAudit(me.id, "rename.request", `@${me.username}`, `申请改名 → @${newUsername}${reason ? `（${reason}）` : ""}`);
   revalidatePath(`/users/${me.username}`);
-  redirect(`/users/${me.username}?ok=rename`);
+  redirect(`/users/${enc(me.username)}?ok=rename`);
 }
 
 /** 掌门审核改名申请。approve=true 应允并立即执行改名；false 婉拒（备注可告申请人）。 */
@@ -936,15 +940,15 @@ export async function sendMessageAction(formData: FormData) {
 
 export async function requestCertificationAction(targetId: number) {
   const me = await requireLogin();
-  if (targetId === me.id) redirect(`/users/${me.username}?e=cert_self`);
+  if (targetId === me.id) redirect(`/users/${enc(me.username)}?e=cert_self`);
 
   const target = db
     .prepare("SELECT id, username, display_name, role, status FROM users WHERE id = ?")
     .get(targetId) as any;
-  if (!target || target.status !== "active") redirect(`/users/${me.username}?e=cert_nouser`);
-  if (me.role === "admin" || target.role === "admin") redirect(`/users/${me.username}?e=cert_admin`);
+  if (!target || target.status !== "active") redirect(`/users/${enc(me.username)}?e=cert_nouser`);
+  if (me.role === "admin" || target.role === "admin") redirect(`/users/${enc(me.username)}?e=cert_admin`);
   if (limitAccountAction(`cert:${me.id}`, 5, HOUR_MS)) {
-    redirect(`/users/${target.username}?e=cert_rate`);
+    redirect(`/users/${enc(target.username)}?e=cert_rate`);
   }
 
   const meName = me.display_name;
@@ -994,9 +998,9 @@ export async function respondCertificationAction(targetId: number, accept: boole
   const row = db
     .prepare("SELECT id FROM certifications WHERE requester_id=? AND responder_id=? AND status='pending'")
     .get(targetId, me.id) as any;
-  if (!row) redirect(`/users/${me.username}?e=cert_none`);
+  if (!row) redirect(`/users/${enc(me.username)}?e=cert_none`);
   const target = db.prepare("SELECT username, display_name FROM users WHERE id = ?").get(targetId) as any;
-  if (!target) redirect(`/users/${me.username}?e=cert_none`);
+  if (!target) redirect(`/users/${enc(me.username)}?e=cert_none`);
 
   const meName = me.display_name;
   const tx = db.transaction(() => {
@@ -1019,7 +1023,7 @@ export async function respondCertificationAction(targetId: number, accept: boole
   revalidatePath("/messages");
   revalidatePath(`/users/${me.username}`);
   revalidatePath(`/users/${target.username}`);
-  redirect(`/users/${target.username}?ok=${accept ? "cert_accepted" : "cert_declined"}`);
+  redirect(`/users/${enc(target.username)}?ok=${accept ? "cert_accepted" : "cert_declined"}`);
 }
 
 export async function setContentAction(formData: FormData) {
