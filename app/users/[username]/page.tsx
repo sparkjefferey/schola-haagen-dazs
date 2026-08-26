@@ -2,7 +2,7 @@ import { Metadata } from "next";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { db } from "@/lib/db";
-import { userMapper } from "@/lib/db";
+import { findUsernameClaim, userMapper } from "@/lib/db";
 import { listPapersByAuthor, listThreads } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
 import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction, requestRenameAction } from "@/lib/actions";
@@ -46,19 +46,15 @@ export default async function UserPage({
   const { username: rawUsername } = await params;
   const username = safeDecodeSegment(rawUsername);
   const sp = await searchParams;
-  let row = db.prepare("SELECT * FROM users WHERE username = ?").get(username) as any;
+  let row = db.prepare("SELECT * FROM users WHERE lower(username) = lower(?)").get(username) as any;
+  if (row && row.username !== username) {
+    redirect(`/users/${encodeURIComponent(row.username)}`);
+  }
   if (!row) {
     // 曾用名回查：改名后旧链接（他人分享的书签/论坛引用）重定向到新名册
-    const hist = db
-      .prepare(
-        "SELECT user_id FROM username_history WHERE old_username = ? ORDER BY id DESC LIMIT 1",
-      )
-      .get(username) as { user_id: number } | undefined;
-    if (hist) {
-      const cur = db
-        .prepare("SELECT username FROM users WHERE id = ?")
-        .get(hist.user_id) as { username: string } | undefined;
-      if (cur) redirect(`/users/${encodeURIComponent(cur.username)}`);
+    const claim = findUsernameClaim(username);
+    if (claim?.source === "history") {
+      redirect(`/users/${encodeURIComponent(claim.currentUsername)}`);
     }
     notFound();
   }
@@ -184,7 +180,7 @@ export default async function UserPage({
                   {sp?.e === "renamefmt" && <span style={{ color: "var(--maroon)" }}> · 用户名不合规（2–20 位，仅限字母/数字/_/-/中文）</span>}
                   {sp?.e === "renamesame" && <span style={{ color: "var(--maroon)" }}> · 新名与现名相同</span>}
                   {sp?.e === "renamereserved" && <span style={{ color: "var(--maroon)" }}> · 此名不可用</span>}
-                  {sp?.e === "renametaken" && <span style={{ color: "var(--maroon)" }}> · 此名已被他人占用</span>}
+                  {sp?.e === "renametaken" && <span style={{ color: "var(--maroon)" }}> · 此名已被他人使用或保留</span>}
                   {sp?.e === "renamepending" && <span style={{ color: "var(--maroon)" }}> · 已有待审申请，请待掌门处置</span>}
                   {sp?.e === "renamecooldown" && <span style={{ color: "var(--maroon)" }}> · 距上次申请未满 7 天，请稍候</span>}
                   {sp?.ok === "rename" && <span style={{ color: "var(--gold-deep)" }}> · 申请已递交，待掌门审核</span>}

@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { db, DISCIPLINES, FORUM_CATEGORIES, nextManuscriptCode } from "@/lib/db";
+import { db, DISCIPLINES, FORUM_CATEGORIES, nextManuscriptCode, findUsernameClaim } from "@/lib/db";
 import {
   hashPassword,
   verifyPassword,
@@ -115,11 +115,8 @@ export async function registerUser(formData: FormData) {
     redirect(`/register?e=regrate${roleTab}`);
   }
 
-  // 同名检测：不区分大小写（"Rector"/"rector" 视为同一名，防止大小写变体卡名/冒名）
-  const exists = db
-    .prepare("SELECT 1 FROM users WHERE lower(username) = lower(?)")
-    .get(username);
-  if (exists) redirect(`/register?e=taken${roleTab}`);
+  // 同名检测包含曾用名：旧名永久归原账号，避免他人重新注册后冒名或截断旧链接。
+  if (findUsernameClaim(username)) redirect(`/register?e=taken${roleTab}`);
 
   if (role === "admin") {
     const valid =
@@ -744,14 +741,15 @@ export async function requestRenameAction(formData: FormData) {
   const reason = String(formData.get("reason") ?? "").trim().slice(0, 120);
 
   if (!USERNAME_RE.test(newUsername)) redirect(`/users/${enc(me.username)}?e=renamefmt`);
-  if (newUsername === me.username) redirect(`/users/${enc(me.username)}?e=renamesame`);
+  if (newUsername.toLowerCase() === me.username.toLowerCase()) {
+    redirect(`/users/${enc(me.username)}?e=renamesame`);
+  }
   // 创始掌门名保留：不得改名为 rector，防止日后有人抢注该名，破坏启动时的创始人修复逻辑
   if (newUsername.toLowerCase() === "rector") redirect(`/users/${enc(me.username)}?e=renamereserved`);
 
-  const taken = db
-    .prepare("SELECT 1 FROM users WHERE lower(username) = lower(?)")
-    .get(newUsername);
-  if (taken) redirect(`/users/${enc(me.username)}?e=renametaken`);
+  // 现用名和曾用名都受保护；本人可申请改回自己的曾用名。
+  const claim = findUsernameClaim(newUsername);
+  if (claim && claim.userId !== me.id) redirect(`/users/${enc(me.username)}?e=renametaken`);
 
   const pending = db
     .prepare("SELECT 1 FROM username_changes WHERE requester_id = ? AND status = 'pending' LIMIT 1")
@@ -763,9 +761,15 @@ export async function requestRenameAction(formData: FormData) {
     redirect(`/users/${enc(me.username)}?e=renamecooldown`);
   }
 
-  db.prepare(
-    "INSERT INTO username_changes (requester_id, old_username, new_username, reason) VALUES (?, ?, ?, ?)",
-  ).run(me.id, me.username, newUsername, reason);
+  // 单条写语句完成“无待审申请才新增”，多个并发请求也只能成功一个。
+  const inserted = db.prepare(
+    `INSERT INTO username_changes (requester_id, old_username, new_username, reason)
+     SELECT ?, ?, ?, ?
+     WHERE NOT EXISTS (
+       SELECT 1 FROM username_changes WHERE requester_id = ? AND status = 'pending'
+     )`,
+  ).run(me.id, me.username, newUsername, reason, me.id);
+  if (inserted.changes !== 1) redirect(`/users/${enc(me.username)}?e=renamepending`);
   logAudit(me.id, "rename.request", `@${me.username}`, `申请改名 → @${newUsername}${reason ? `（${reason}）` : ""}`);
   revalidatePath(`/users/${me.username}`);
   redirect(`/users/${enc(me.username)}?ok=rename`);
@@ -775,32 +779,45 @@ export async function requestRenameAction(formData: FormData) {
 export async function respondRenameAction(requestId: number, approve: boolean, note: string) {
   const me = await requireAdmin();
   if (!Number.isInteger(requestId) || requestId <= 0) fail("改名申请编号无效");
+  if (typeof approve !== "boolean") fail("改名审核动作无效");
   const req = db
     .prepare("SELECT * FROM username_changes WHERE id = ? AND status = 'pending'")
     .get(requestId) as any;
   if (!req) fail("该改名申请不存在或已处置");
   const target = db.prepare("SELECT id, username, status FROM users WHERE id = ?").get(req.requester_id) as any;
   if (!target) fail("申请人已不在册");
-  const noteCleaned = (note || "").trim().slice(0, 200);
+  const noteCleaned = String(note ?? "").trim().slice(0, 200);
 
   if (approve) {
+    if (target.status !== "active") fail("申请人当前不在正常学籍状态，请暂勿应允改名");
     // 二次校验：等待期间新名可能已被他人注册（注册走大小写不敏感唯一）
     if (!USERNAME_RE.test(req.new_username)) fail("新名已不符合命名规则，请婉拒并让其重新申请");
-    if (target.username === req.new_username) fail("该用户已是此名，无需改名");
-    const taken = db
-      .prepare("SELECT 1 FROM users WHERE id != ? AND lower(username) = lower(?)")
-      .get(target.id, req.new_username);
-    if (taken) fail("该名已被他人占用，请婉拒并告知申请人另择新名。");
+    if (target.username.toLowerCase() === req.new_username.toLowerCase()) {
+      fail("该用户已是此名，无需改名");
+    }
+    const claim = findUsernameClaim(req.new_username);
+    if (claim && claim.userId !== target.id) {
+      fail("该名已被他人使用或保留，请婉拒并告知申请人另择新名。");
+    }
 
     const tx = db.transaction(() => {
-      db.prepare("INSERT INTO username_history (user_id, old_username) VALUES (?, ?)").run(
-        target.id,
-        target.username,
-      );
-      db.prepare("UPDATE users SET username = ? WHERE id = ?").run(req.new_username, target.id);
-      db.prepare(
-        "UPDATE username_changes SET status = 'approved', responded_by = ?, responded_at = datetime('now'), response_note = ? WHERE id = ?",
+      // 先原子认领这份待审记录，防止两位管理员同时处置。
+      const decided = db.prepare(
+        `UPDATE username_changes
+         SET status = 'approved', responded_by = ?, responded_at = datetime('now'), response_note = ?
+         WHERE id = ? AND status = 'pending'`,
       ).run(me.id, noteCleaned, requestId);
+      if (decided.changes !== 1) fail("该改名申请已被其他管理者处置");
+
+      // 同一旧名只保留最早的归属，兼容修复前可能存在的历史冲突。
+      db.prepare(
+        `INSERT INTO username_history (user_id, old_username)
+         SELECT ?, ?
+         WHERE NOT EXISTS (
+           SELECT 1 FROM username_history WHERE lower(old_username) = lower(?)
+         )`,
+      ).run(target.id, target.username, target.username);
+      db.prepare("UPDATE users SET username = ? WHERE id = ?").run(req.new_username, target.id);
     });
     tx();
     logAudit(me.id, "rename.approve", `@${req.old_username}`, `应允改名 → @${req.new_username}`);
@@ -816,9 +833,12 @@ export async function respondRenameAction(requestId: number, approve: boolean, n
     redirect(`/admin?tab=renames&ok=${encodeURIComponent(`已应允：@${req.new_username}`)}`);
   }
 
-  db.prepare(
-    "UPDATE username_changes SET status='declined', responded_by = ?, responded_at = datetime('now'), response_note = ? WHERE id = ?",
+  const declined = db.prepare(
+    `UPDATE username_changes
+     SET status='declined', responded_by = ?, responded_at = datetime('now'), response_note = ?
+     WHERE id = ? AND status = 'pending'`,
   ).run(me.id, noteCleaned, requestId);
+  if (declined.changes !== 1) fail("该改名申请已被其他管理者处置");
   logAudit(me.id, "rename.decline", `@${req.old_username}`, `婉拒改名 → @${req.new_username}${noteCleaned ? `（${noteCleaned}）` : ""}`);
   sendSystemMessage(
     target.id,

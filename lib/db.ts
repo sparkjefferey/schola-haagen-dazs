@@ -178,6 +178,12 @@ export interface UsernameChange {
   created_at: string;
 }
 
+export interface UsernameClaim {
+  userId: number;
+  currentUsername: string;
+  source: "current" | "history";
+}
+
 export const FORUM_CATEGORIES = [
   "学术交流",
   "冷食哲学",
@@ -367,6 +373,7 @@ export function initSchema() {
       created_at   TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_username_history_old ON username_history(old_username);
+    CREATE INDEX IF NOT EXISTS idx_username_history_old_nocase ON username_history(lower(old_username));
   `);
 
   // ---- 轻量迁移（老库补列） ----
@@ -529,6 +536,43 @@ export function initSchema() {
 }
 
 initSchema();
+
+/**
+ * Find who owns a username, including retained former usernames.
+ * Current names take precedence only for compatibility with legacy data that may
+ * already contain a collision; new registrations and renames prevent new ones.
+ */
+export function findUsernameClaim(username: string): UsernameClaim | null {
+  const current = db
+    .prepare("SELECT id, username FROM users WHERE lower(username) = lower(?) LIMIT 1")
+    .get(username) as { id: number; username: string } | undefined;
+  if (current) {
+    return {
+      userId: current.id,
+      currentUsername: current.username,
+      source: "current",
+    };
+  }
+
+  // The earliest history entry is the original owner. This also makes legacy
+  // duplicate history rows deterministic instead of letting a later row hijack it.
+  const historical = db
+    .prepare(
+      `SELECT h.user_id, u.username
+       FROM username_history h
+       JOIN users u ON u.id = h.user_id
+       WHERE lower(h.old_username) = lower(?)
+       ORDER BY h.id ASC
+       LIMIT 1`,
+    )
+    .get(username) as { user_id: number; username: string } | undefined;
+  if (!historical) return null;
+  return {
+    userId: historical.user_id,
+    currentUsername: historical.username,
+    source: "history",
+  };
+}
 
 export type SafeUser = Omit<User, "password_hash">;
 

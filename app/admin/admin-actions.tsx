@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { REVIEW_FLOW } from "@/lib/paper";
 
@@ -282,31 +282,32 @@ export function RenameRowActions({
   newUsername: string;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState(false);
+  const [busy, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
-  async function act(approve: boolean) {
+  function act(approve: boolean) {
     let note = "";
     if (!approve) {
-      note = window.prompt(`婉拒改名（→ @${newUsername}）—— 掌门留谕（可选，将告申请人）：`) ?? "";
-      if (note === null) return;
+      const prompted = window.prompt(`婉拒改名（→ @${newUsername}）—— 掌门留谕（可选，将告申请人）：`);
+      if (prompted === null) return;
+      note = prompted;
     } else if (!window.confirm(`应允后即执行改名 → @${newUsername}，旧名保留重定向。`)) {
       return;
     }
-    setBusy(true);
     setError(null);
-    try {
-      const { respondRenameAction } = await import("@/lib/actions");
-      await respondRenameAction(requestId, approve, note);
-      router.refresh();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "处置未成");
-    }
-    setBusy(false);
+    startTransition(async () => {
+      try {
+        const { respondRenameAction } = await import("@/lib/actions");
+        await respondRenameAction(requestId, approve, note);
+        router.refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "处置未成");
+      }
+    });
   }
 
   return (
-    <span style={{ display: "inline-flex", gap: 6 }}>
+    <span style={{ display: "inline-flex", gap: 6, flexWrap: "wrap" }}>
       <button className="btn btn-sm btn-gold" onClick={() => act(true)} disabled={busy}>
         应 允
       </button>

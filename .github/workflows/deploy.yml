@@ -46,6 +46,46 @@ jobs:
           script_stop: true
           script: |
             cd /srv/schola-haagen-dazs
+            backup_dir="$PWD/backups"
+            mkdir -p "$backup_dir"
+            backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
+            backup_file="$backup_dir/schola-data-predeploy-$backup_stamp.sqlite"
+            backup_tmp="$(mktemp "$backup_dir/.schola-data-predeploy.XXXXXX")"
+            if ! docker compose ps --status running -q schola | grep -q .; then
+              rm -f "$backup_tmp"
+              echo "schola 容器未运行，无法确认数据库备份；停止部署。"
+              exit 1
+            fi
+            if ! docker compose exec -T schola node -e '
+            const fs = require("node:fs");
+            const os = require("node:os");
+            const path = require("node:path");
+            const crypto = require("node:crypto");
+            const Database = require("better-sqlite3");
+            const source = new Database("/app/data/schola.db", { readonly: true, fileMustExist: true });
+            const target = path.join(os.tmpdir(), `schola-${crypto.randomUUID()}.sqlite`);
+            (async () => {
+              try {
+                await source.backup(target);
+                source.close();
+                const snapshot = fs.readFileSync(target);
+                fs.rmSync(target, { force: true });
+                process.stdout.write(snapshot);
+              } catch (error) {
+                try { source.close(); } catch {}
+                fs.rmSync(target, { force: true });
+                console.error(error instanceof Error ? error.message : String(error));
+                process.exitCode = 1;
+              }
+            })();
+            ' > "$backup_tmp"; then
+              rm -f "$backup_tmp"
+              echo "数据库在线备份失败；停止部署。"
+              exit 1
+            fi
+            test -s "$backup_tmp"
+            mv "$backup_tmp" "$backup_file"
+            echo "部署前数据库备份完成：$backup_file"
             git fetch origin
             git reset --hard origin/main
             bash update.sh

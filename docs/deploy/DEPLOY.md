@@ -98,7 +98,7 @@ bash deploy.sh
 编辑 `docker-compose.yml`，把 `ports` 那行改成 `"80:3000"`，然后 `docker compose up -d`。
 
 **Q：怎么改代码后生效？**
-代码用 git 拉的：`git pull` 然后 `bash update.sh`。
+代码用 git 拉的：`git pull` 然后 `bash update.sh`。更新脚本会先把当前数据库备份到 `backups/`；如果备份失败，更新会自动停止，不会在没有恢复点时重建网站。
 代码是 scp 传的：重新 scp 覆盖，再 `bash deploy.sh`。
 
 ---
