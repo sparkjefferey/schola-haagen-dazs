@@ -5,7 +5,7 @@ import { db } from "@/lib/db";
 import { findUsernameClaim, userMapper } from "@/lib/db";
 import { listPapersByAuthor, listThreads } from "@/lib/queries";
 import { getSessionUser } from "@/lib/auth";
-import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction, requestRenameAction } from "@/lib/actions";
+import { discardPaperAction, resubmitPaperAction, submitRevisionAction, claimAdminAction, requestCertificationAction, respondCertificationAction, updateEmailAction, requestRenameAction, updateDisplayNameAction } from "@/lib/actions";
 import ChangePasswordForm from "./change-password-form";
 import { getCertRelation } from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
@@ -187,6 +187,43 @@ export default async function UserPage({
                 </p>
               </form>
             )}
+          </details>
+          <details style={{ marginTop: 18, textAlign: "left", maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
+            <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
+              修改雅名
+            </summary>
+            <form action={updateDisplayNameAction} style={{ marginTop: 12 }}>
+              <div className="field" style={{ marginBottom: 10 }}>
+                <label style={{ fontSize: 13 }}>新雅名（1–24 字）</label>
+                <input
+                  name="new_display_name"
+                  type="text"
+                  autoComplete="off"
+                  maxLength={24}
+                  defaultValue={user.display_name}
+                  placeholder="将示于名册、论坛与论著署名"
+                  style={{
+                    fontFamily: "var(--serif)",
+                    color: "var(--ink)",
+                    background: "var(--parch-0)",
+                    border: "1px solid var(--line)",
+                    borderRadius: 3,
+                    padding: "8px 12px",
+                    width: "100%",
+                  }}
+                />
+              </div>
+              <button type="submit" className="btn btn-sm btn-gold" style={{ width: "100%" }}>
+                更 易 雅 名
+              </button>
+              <p className="meta" style={{ marginTop: 8, fontSize: 12, textAlign: "center" }}>
+                雅名即对外展示之名，与登录用户名区分；修改即时生效，无需审核。
+                {sp?.e === "displayfmt" && <span style={{ color: "var(--maroon)" }}> · 雅名不可为空且限 24 字内</span>}
+                {sp?.e === "displaysame" && <span style={{ color: "var(--maroon)" }}> · 与现雅名相同</span>}
+                {sp?.e === "displayrate" && <span style={{ color: "var(--maroon)" }}> · 修改过于频繁，请稍后再试</span>}
+                {sp?.ok === "display" && <span style={{ color: "var(--gold-deep)" }}> · 雅名已更易</span>}
+              </p>
+            </form>
           </details>
           <details style={{ marginTop: 18, textAlign: "left", maxWidth: 380, marginLeft: "auto", marginRight: "auto" }}>
             <summary style={{ cursor: "pointer", textAlign: "center", color: "var(--maroon)", fontFamily: "var(--display)", letterSpacing: "0.06em" }}>
