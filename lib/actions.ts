@@ -848,6 +848,30 @@ export async function respondRenameAction(requestId: number, approve: boolean, n
   redirect(`/admin?tab=renames&ok=${encodeURIComponent("已婉拒并致函申请人")}`);
 }
 
+// ==================== 雅名修改（display_name） ====================
+// 雅名即对外展示之名，与登录用户名（@username）区分。允许本人直接修改，无需掌门审核，
+// 但需限流防刷、记录审计。与「用户名改名（需审核）」并列于个人名册页。
+export async function updateDisplayNameAction(formData: FormData) {
+  const me = await requireLogin();
+  if (me.status !== "active") redirect(`/users/${enc(me.username)}`);
+  let newName = String(formData.get("new_display_name") ?? "").trim();
+  // 与注册时一致：最多 24 字，前后空格已去，空则不允许
+  if (newName.length === 0) redirect(`/users/${enc(me.username)}?e=displayfmt`);
+  newName = newName.slice(0, 24);
+  if (newName.length < 1 || newName.length > 24) redirect(`/users/${enc(me.username)}?e=displayfmt`);
+  if (newName === me.display_name) redirect(`/users/${enc(me.username)}?e=displaysame`);
+  if (limitAccountAction(`display:${me.id}`, 5, HOUR_MS)) {
+    redirect(`/users/${enc(me.username)}?e=displayrate`);
+  }
+  db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(newName, me.id);
+  logAudit(me.id, "account.display_name", `@${me.username}`, `雅名更易：${me.display_name} → ${newName}`);
+  revalidatePath(`/users/${me.username}`);
+  revalidatePath("/ranking");
+  revalidatePath("/");
+  revalidatePath("/admin");
+  redirect(`/users/${enc(me.username)}?ok=display`);
+}
+
 export async function setUserEndorsedAction(userId: number, endorsed: 0 | 1) {
   const actor = await requireAdmin();
   const target = db.prepare("SELECT username, status FROM users WHERE id = ?").get(userId) as any;
