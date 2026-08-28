@@ -901,59 +901,93 @@ export async function revokeInviteAction(code: string) {
 // 后台一次性提交全部文案字段；库里 upsert，留空则回退默认（由读取侧处理）。
 // ==================== 站内讯息（私聊 + 系统消息） ====================
 
-export async function sendMessageAction(formData: FormData) {
-  const me = await requireLogin();
-  const receiverId = Number(formData.get("receiver_id"));
-  let body = String(formData.get("body") ?? "").trim();
-  if (!receiverId || !Number.isFinite(receiverId)) redirect("/messages");
-  if (body.length === 0) redirect(`/messages?with=${receiverId}&e=empty`);
+// 站内私信共享校验与写入核心，消除 sendMessageAction / sendMessageInline 重复
+type SendMessageError = { ok: false; error: string; code: string };
+type SendMessageSuccess = { ok: true; target: any; body: string; mutuallyCertified: boolean };
+function prepareSendMessage(
+  me: { id: number; role: string; endorsed: number | boolean },
+  receiverId: number,
+  bodyRaw: string,
+): SendMessageSuccess | SendMessageError {
+  if (!receiverId || !Number.isFinite(receiverId)) return { ok: false, error: "接收者无效。", code: "nouser" };
+  let body = String(bodyRaw ?? "").trim();
+  if (body.length === 0) return { ok: false, error: "私信内容不可为空。", code: "empty" };
   if (body.length > 2000) body = body.slice(0, 2000);
-  if (receiverId === me.id) redirect("/messages?e=self");
-  const target = db
-    .prepare("SELECT id, username, role, status FROM users WHERE id = ?")
-    .get(receiverId) as any;
-  if (!target || target.status !== "active") redirect(`/messages?e=nouser`);
+  if (receiverId === me.id) return { ok: false, error: "不能给自己发私信。", code: "self" };
+  const target = db.prepare("SELECT id, username, role, status FROM users WHERE id = ?").get(receiverId) as any;
+  if (!target || target.status !== "active") return { ok: false, error: "该用户不存在或已离馆。", code: "nouser" };
 
   const mutuallyCertified = isMutuallyCertified(me.id, receiverId);
 
-  // 管理员收件箱是高价值目标。普通账号只有满足下列任一条件才可主动联系管理员：
-  // 已获认证、已与该管理员互证，或管理员曾经先给它发送过私信。
-  // 这项检查必须放在服务端，不能依赖页面是否展示管理员 ID。
   if (me.role !== "admin" && target.role === "admin") {
     const adminOpenedConversation = !!db
-      .prepare(
-        "SELECT 1 FROM messages WHERE kind='pm' AND sender_id=? AND receiver_id=? LIMIT 1",
-      )
+      .prepare("SELECT 1 FROM messages WHERE kind='pm' AND sender_id=? AND receiver_id=? LIMIT 1")
       .get(receiverId, me.id);
     if (!me.endorsed && !mutuallyCertified && !adminOpenedConversation) {
       logAudit(me.id, "security.pm_blocked", `@${target.username}`, "未获认证账号主动联系管理员");
-      redirect(`/messages?with=${receiverId}&e=admin_gate`);
+      return { ok: false, error: "为保护管理者收件箱，未获认证或互证的账号不能主动私信管理者。", code: "admin_gate" };
     }
-
-    // 即便已获准联系管理员，也保留按“发送账号 + 管理员”计算的独立额度，
-    // 防止某个已认证账号失陷后持续轰炸。管理员回信不受此限制。
-    if (
-      limitAccountAction(`pm-admin-hour:${me.id}:${receiverId}`, 2, HOUR_MS) ||
-      limitAccountAction(`pm-admin-day:${me.id}:${receiverId}`, 5, DAY_MS)
-    ) {
+    // 两个桶均为有状态 consume，必须都执行再判断，否则 || 短路会漏计 daily
+    const hourLimited = limitAccountAction(`pm-admin-hour:${me.id}:${receiverId}`, 2, HOUR_MS);
+    const dayLimited = limitAccountAction(`pm-admin-day:${me.id}:${receiverId}`, 5, DAY_MS);
+    if (hourLimited || dayLimited) {
       logAudit(me.id, "security.pm_rate_blocked", `@${target.username}`, "管理员私信个人额度已满");
-      redirect(`/messages?with=${receiverId}&e=admin_limit`);
+      return { ok: false, error: "你向该管理者发送私信的个人额度已满，请稍后再试。", code: "admin_limit" };
     }
   }
-  // 互证豁免额度：管理员或两人互证可无限私信；否则受每日限额约束（唯一强制点）
-  if (
-    me.role !== "admin" &&
-    !mutuallyCertified &&
-    pmQuotaUsed(me.id) >= pmDailyLimit()
-  ) {
-    redirect(`/messages?with=${receiverId}&e=limit`);
+  if (me.role !== "admin" && !mutuallyCertified && pmQuotaUsed(me.id) >= pmDailyLimit()) {
+    return { ok: false, error: `今日未互证私信已达限额（${pmDailyLimit()} 条）。`, code: "limit" };
   }
-  db.prepare(
-    "INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')",
-  ).run(me.id, receiverId, body);
-  logAudit(me.id, "message.send", `@${target.username}`, `普通私信 ${body.length} 字`);
+  return { ok: true, target, body, mutuallyCertified };
+}
+
+export async function sendMessageAction(formData: FormData) {
+  const me = await requireLogin();
+  const receiverId = Number(formData.get("receiver_id"));
+  const bodyRaw = String(formData.get("body") ?? "");
+  const prep = prepareSendMessage(me, receiverId, bodyRaw);
+  if (!prep.ok) {
+    // 保留原有 ?e=code 的重定向语义以兼容无 JS 回退
+    const code = prep.code;
+    if (code === "nouser" && (!receiverId || !Number.isFinite(receiverId))) redirect("/messages");
+    if (code === "self") redirect("/messages?e=self");
+    if (code === "nouser") redirect("/messages?e=nouser");
+    redirect(`/messages?with=${receiverId}&e=${code}`);
+  }
+  db.prepare("INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')").run(
+    me.id,
+    receiverId,
+    prep.body,
+  );
+  logAudit(me.id, "message.send", `@${prep.target.username}`, `普通私信 ${prep.body.length} 字`);
   revalidatePath("/messages");
   redirect(`/messages?with=${receiverId}&sent=1`);
+}
+
+/** 供客户端聊天面板调用的免刷新版本：不 redirect，直接返回结果，避免全页闪烁。 */
+export async function sendMessageInline(receiverId: number, bodyRaw: string): Promise<
+  | { ok: true; message: { id: number; body: string; created_at: string; sender_id: number; receiver_id: number } }
+  | { ok: false; error: string; code?: string }
+> {
+  const me = await requireLogin();
+  const prep = prepareSendMessage(me, receiverId, bodyRaw);
+  if (!prep.ok) return prep;
+  const info = db
+    .prepare("INSERT INTO messages (sender_id, receiver_id, body, kind) VALUES (?, ?, ?, 'pm')")
+    .run(me.id, receiverId, prep.body);
+  logAudit(me.id, "message.send", `@${prep.target.username}`, `普通私信 ${prep.body.length} 字`);
+  revalidatePath("/messages");
+  const row = db.prepare("SELECT * FROM messages WHERE id = ?").get(info.lastInsertRowid as number) as any;
+  return {
+    ok: true,
+    message: {
+      id: row.id,
+      body: row.body,
+      created_at: row.created_at,
+      sender_id: row.sender_id,
+      receiver_id: row.receiver_id,
+    },
+  };
 }
 
 // ==================== 同侪互证（互相关注式） ====================
