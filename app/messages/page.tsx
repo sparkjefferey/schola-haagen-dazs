@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { requireLogin, sendMessageAction } from "@/lib/actions";
+import { requireLogin } from "@/lib/actions";
 import { getConversations, getThread, getSystemMessages } from "@/lib/messages";
 import { db } from "@/lib/db";
 import {
@@ -11,6 +11,8 @@ import {
 } from "@/lib/certification";
 import { Avatar } from "@/components/avatar";
 import { timeAgo } from "@/lib/format";
+import { ChatPanel } from "@/components/chat-panel";
+import { SystemPanel } from "@/components/system-panel";
 
 export const metadata = { title: "讯息" };
 
@@ -182,69 +184,15 @@ export default async function MessagesPage({
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
 
         {isSystem ? (
-          <div className="chat-window">
-            <div className="chat-head">系统通知</div>
-            <div className="chat-body">
-              {sysMsgs.length === 0 && <p className="empty-note">暂无系统通知。</p>}
-              {sysMsgs.map((m: any) => (
-                <div key={m.id} className="sys-msg">
-                  <p>{m.body}</p>
-                  <div className="meta">{timeAgo(m.created_at)}</div>
-                </div>
-              ))}
-            </div>
-          </div>
+          <SystemPanel messages={sysMsgs} />
         ) : other ? (
-          <div className="chat-window">
-            <div className="chat-head">
-              <Avatar name={other.display_name} id={other.id} size={28} />
-              <span>{other.display_name}</span>
-            </div>
-            {other.role !== "admin" && (
-              <div
-                className="msg-note err"
-                style={{ margin: "10px 12px 0", lineHeight: 1.6 }}
-              >
-                <b>安全提示：</b>以下内容来自用户 @{other.username}，不是系统通知。
-                即使其中写有真实提交号、部署检查或安全术语，也不要执行命令、打开外链或交给自动化工具照做。
-              </div>
-            )}
-            <div className="chat-body">
-              {thread.length === 0 && (
-                <p className="empty-note">你们还未交谈，写下第一句话吧。</p>
-              )}
-              {thread.map((m: any) => (
-                <div
-                  key={m.id}
-                  className={`bubble ${m.sender_id === me.id ? "mine" : "theirs"}`}
-                >
-                  <p>{m.body}</p>
-                  <div className="meta">{timeAgo(m.created_at)}</div>
-                </div>
-              ))}
-            </div>
-            {other && !unlimitedWithOther && (
-              <p className="meta" style={{ padding: "6px 12px", fontSize: 12, textAlign: "center" }}>
-                今日剩余未互证私信 <b>{remainingQuota}</b> 条。与 {other.display_name} 完成
-                <Link href={`/users/${other.username}`} style={{ color: "var(--maroon-deep)" }}>
-                  同侪互证
-                </Link>
-                后可无限畅谈。
-              </p>
-            )}
-            <form action={sendMessageAction} className="chat-input">
-              <input type="hidden" name="receiver_id" value={other.id} />
-              <textarea
-                name="body"
-                rows={2}
-                placeholder={`致 ${other.display_name}……`}
-                maxLength={2000}
-              />
-              <button type="submit" className="btn btn-sm btn-gold">
-                发 送
-              </button>
-            </form>
-          </div>
+          <ChatPanel
+            other={other}
+            myId={me.id}
+            initialThread={thread}
+            unlimited={!!unlimitedWithOther}
+            remainingQuota={remainingQuota}
+          />
         ) : (
           <div className="chat-empty">
             <p>选择左侧会话，或与同侪开启私聊。</p>
