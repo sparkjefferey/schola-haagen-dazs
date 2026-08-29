@@ -58,8 +58,12 @@ jobs:
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/probe_key
           chmod 600 ~/.ssh/probe_key
 
-          echo "--- 私钥对应的公钥指纹（仅指纹，不输出密钥内容）---"
+          echo "--- 私钥指纹 ---"
           ssh-keygen -lf ~/.ssh/probe_key 2>&1 || echo "私钥解析失败：secret 可能不是合法私钥"
+
+          echo "--- 由私钥反推的公钥（公钥非机密，可安全输出）---"
+          echo "请把下面整行加到服务器 ~/.ssh/authorized_keys："
+          ssh-keygen -y -f ~/.ssh/probe_key 2>&1 | sed 's/^/PUBKEY>> /'
 
           echo "--- 尝试只读登录 ---"
           set +e
