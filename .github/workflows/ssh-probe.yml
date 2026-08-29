@@ -1,0 +1,90 @@
+name: SSH Probe (read-only)
+
+# 用途：一次性诊断 GitHub Actions runner 能否直连生产服务器。
+# 只执行只读命令（hostname / uptime / docker ps / 目录探测 / version.json），
+# 不修改服务器任何状态，不做备份、不重建容器、不 pull 代码。
+# 结论确认后本文件可删除。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+    steps:
+      - name: 0) 校验配置是否齐全
+        run: |
+          set -eu
+          missing=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY; do
+            if [ -z "$(eval "echo \$$v")" ]; then echo "缺少 secret: $v"; missing=1; fi
+          done
+          # secret 值本身不打印，只打印长度，便于确认不是空串
+          echo "DEPLOY_HOST 长度=${#DEPLOY_HOST}  DEPLOY_USER 长度=${#DEPLOY_USER}  DEPLOY_KEY 长度=${#DEPLOY_KEY}"
+          exit $missing
+
+      - name: 1) 网络层 — 能否拿到 SSH banner（不需要认证）
+        run: |
+          set -u
+          echo "目标: $DEPLOY_HOST:22"
+          if timeout 20 bash -c "exec 3<>/dev/tcp/$DEPLOY_HOST/22" 2>/dev/null; then
+            echo "TCP 连接: OK"
+            timeout 20 bash -c "exec 3<>/dev/tcp/$DEPLOY_HOST/22; head -c 80 <&3" 2>/dev/null | tr -d '\r' || echo "banner 读取超时"
+          else
+            echo "TCP 连接: 失败（端口不可达或被过滤）"
+          fi
+
+      - name: 2) 服务器主机密钥指纹（用于后续配置 host key 校验）
+        run: |
+          set -u
+          echo "--- ssh-keyscan 结果 ---"
+          if timeout 30 ssh-keyscan -T 20 -p 22 "$DEPLOY_HOST" > /tmp/hostkeys 2>/dev/null && [ -s /tmp/hostkeys ]; then
+            ssh-keygen -lf /tmp/hostkeys
+            echo "--- 建议写入 secrets.DEPLOY_FINGERPRINT 的值（取 SHA256: 开头那串）---"
+            ssh-keygen -lf /tmp/hostkeys | awk 'NR==1{print $2}'
+          else
+            echo "keyscan 失败：runner 到服务器 22 端口不通"
+          fi
+
+      - name: 3) 认证层 — 用 DEPLOY_KEY 只读登录
+        run: |
+          set -u
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/probe_key
+          chmod 600 ~/.ssh/probe_key
+
+          echo "--- 私钥对应的公钥指纹（仅指纹，不输出密钥内容）---"
+          ssh-keygen -lf ~/.ssh/probe_key 2>&1 || echo "私钥解析失败：secret 可能不是合法私钥"
+
+          echo "--- 尝试只读登录 ---"
+          set +e
+          ssh -i ~/.ssh/probe_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile=/tmp/known_hosts \
+              -o ConnectTimeout=20 \
+              -o BatchMode=yes \
+              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" \
+              'echo "=== 登录成功 ==="
+               echo "hostname: $(hostname)"
+               echo "uptime:   $(uptime -p 2>/dev/null || uptime)"
+               echo "--- docker 容器 ---"
+               docker ps --format "table {{.Names}}\t{{.Status}}" 2>&1 | head -10
+               echo "--- 项目目录探测 ---"
+               for d in /opt/schola-haagen-dazs /srv/schola-haagen-dazs; do
+                 [ -d "$d" ] && echo "存在: $d" || echo "不存在: $d"
+               done
+               echo "--- 线上版本 ---"
+               cat /opt/schola-haagen-dazs/public/version.json 2>&1 || echo "未找到 version.json"
+               echo "--- 公钥是否已授权 ---"
+               grep -c "ssh-ed25519\|ssh-rsa" ~/.ssh/authorized_keys 2>/dev/null || echo "无 authorized_keys"'
+          rc=$?
+          set -e
+          echo "ssh 退出码: $rc"
+          if [ "$rc" -ne 0 ]; then
+            echo "!! 登录失败。若第 1、2 步成功说明网络通，问题在密钥认证（DEPLOY_KEY 很可能是 08-15 重装前的旧密钥）。"
+          fi
