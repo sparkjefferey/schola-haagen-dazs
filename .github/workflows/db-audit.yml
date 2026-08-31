@@ -1,0 +1,131 @@
+name: DB Audit (read-only)
+
+# 用途：诊断管理员登录失败的根因。全程只读——不改动数据库、不重启容器、不重置任何口令。
+# 输出已脱敏：不打印完整口令哈希、不打印任何凭据、不打印公网入口地址。
+# 注意：本仓库为 public 时 Actions 日志对外可见，因此输出必须保持脱敏。
+
+on:
+  workflow_dispatch:
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+    steps:
+      - name: 0) 校验 secrets
+        run: |
+          set -eu
+          missing=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY; do
+            if [ -z "$(eval "echo \$$v")" ]; then echo "缺少 secret: $v"; missing=1; fi
+          done
+          echo "DEPLOY_HOST 长度=${#DEPLOY_HOST} DEPLOY_USER 长度=${#DEPLOY_USER} DEPLOY_KEY 长度=${#DEPLOY_KEY}"
+          exit $missing
+
+      - name: 1) 只读审计
+        run: |
+          set -u
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/audit_key
+          chmod 600 ~/.ssh/audit_key
+
+          set +e
+          ssh -i ~/.ssh/audit_key \
+              -o StrictHostKeyChecking=accept-new \
+              -o UserKnownHostsFile=/tmp/known_hosts \
+              -o ConnectTimeout=20 \
+              -o BatchMode=yes \
+              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          set -u
+          echo "=== A. 主机与容器 ==="
+          echo "hostname: $(hostname)"
+          echo "uptime:   $(uptime -p 2>/dev/null || uptime)"
+          docker ps -a --filter name=schola --format '状态={{.Status}}' 2>&1
+          docker inspect schola-haagen-dazs --format '启动于={{.State.StartedAt}} 重启次数={{.RestartCount}}' 2>&1
+          docker inspect schola-haagen-dazs --format '卷挂载={{range .Mounts}}{{.Name}}:{{.Destination}} {{end}}' 2>&1
+
+          echo ""
+          echo "=== B. 数据库文件（宿主机卷内）==="
+          DB=$(docker inspect schola-haagen-dazs --format '{{range .Mounts}}{{if eq .Destination "/app/data"}}{{.Source}}{{end}}{{end}}' 2>/dev/null)
+          echo "卷路径: $DB"
+          ls -la "$DB" 2>&1 | head -10
+
+          echo ""
+          echo "=== C. 容器内看到的数据库 ==="
+          docker compose -f /opt/schola-haagen-dazs/docker-compose.yml ps 2>&1 | head -5
+          VOL=$(docker volume inspect schola-data --format '{{.Mountpoint}}' 2>/dev/null)
+          echo "volume mountpoint: $VOL"
+          if [ -n "$VOL" ]; then ls -la "$VOL" 2>&1 | head -10; fi
+
+          echo ""
+          echo "=== D. 用户表（脱敏：哈希只取前8位盐前缀，不泄露口令）==="
+          docker exec schola-haagen-dazs node -e '
+          const Database = require("better-sqlite3");
+          const db = new Database("/app/data/schola.db", { readonly: true });
+          const n = db.prepare("select count(*) c from users").get().c;
+          console.log("用户总数:", n);
+          const rows = db.prepare("select id,username,display_name,role,root,status,created_at,length(password_hash) hl,substr(password_hash,1,8) hp from users order by id").all();
+          for (const r of rows) {
+            console.log(`#${r.id} ${r.username} | 名:${r.display_name} | role:${r.role} | root:${r.root} | 状态:${r.status} | 建于:${r.created_at} | 哈希长:${r.hl} | 盐前缀:${r.hp}`);
+          }
+          db.close();
+          ' 2>&1 | head -40
+
+          echo ""
+          echo "=== E. 登录失败限流记录（关键：被锁会表现为“密码不对”）==="
+          docker exec schola-haagen-dazs node -e '
+          const Database = require("better-sqlite3");
+          const db = new Database("/app/data/schola.db", { readonly: true });
+          try {
+            const rows = db.prepare("select ip,username,count,window_end from login_attempts order by window_end desc limit 20").all();
+            console.log("login_attempts 行数:", rows.length);
+            for (const r of rows) console.log(`ip=${r.ip} user=${r.username} 失败${r.count}次 窗口至=${r.window_end}`);
+          } catch (e) { console.log("读取失败:", e.message); }
+          db.close();
+          ' 2>&1 | head -30
+
+          echo ""
+          echo "=== F. 最近审计日志（看有没有 root 修复 / 登录记录）==="
+          docker exec schola-haagen-dazs node -e '
+          const Database = require("better-sqlite3");
+          const db = new Database("/app/data/schola.db", { readonly: true });
+          try {
+            const rows = db.prepare("select id,actor_id,action,target,created_at from audit_log order by id desc limit 25").all();
+            for (const r of rows) console.log(`#${r.id} ${r.created_at} actor=${r.actor_id} ${r.action} -> ${r.target}`);
+          } catch (e) { console.log("读取失败:", e.message); }
+          db.close();
+          ' 2>&1 | head -40
+
+          echo ""
+          echo "=== G. 现存会话 ==="
+          docker exec schola-haagen-dazs node -e '
+          const Database = require("better-sqlite3");
+          const db = new Database("/app/data/schola.db", { readonly: true });
+          try {
+            const rows = db.prepare("select s.user_id,u.username,s.expires_at from sessions s join users u on u.id=s.user_id order by s.expires_at desc limit 20").all();
+            console.log("会话数:", rows.length);
+            for (const r of rows) console.log(`user#${r.user_id} ${r.username} 过期于 ${r.expires_at}`);
+          } catch (e) { console.log("读取失败:", e.message); }
+          db.close();
+          ' 2>&1 | head -30
+
+          echo ""
+          echo "=== H. 线上版本与备份 ==="
+          cat /opt/schola-haagen-dazs/public/version.json 2>&1
+          echo "--- 服务器上的备份文件（最多10个最新）---"
+          ls -lat /opt/schola-haagen-dazs/backups/*.sqlite 2>/dev/null | head -10 || echo "无 sqlite 备份"
+          ls -lat /opt/schola-haagen-dazs/backups/ 2>/dev/null | head -10 || echo "无 backups 目录"
+
+          echo ""
+          echo "=== I. 入口（不打印地址，只报状态）==="
+          systemctl is-active cloudflared 2>&1 || echo "cloudflared 非 systemd 托管"
+          pgrep -a cloudflared >/dev/null 2>&1 && echo "cloudflared 进程: 在跑" || echo "cloudflared 进程: 未找到"
+          curl -s -o /dev/null -w "本机 127.0.0.1:3000 状态码=%{http_code}\n" --max-time 8 http://127.0.0.1:3000/ 2>&1
+          REMOTE
+          rc=$?
+          set -e
+          echo "ssh 退出码: $rc"
