@@ -89,8 +89,17 @@ jobs:
                done
                echo "--- 线上版本 ---"
                cat /opt/schola-haagen-dazs/public/version.json 2>&1 || echo "未找到 version.json"
-               echo "--- 公钥是否已授权 ---"
-               grep -c "ssh-ed25519\|ssh-rsa" ~/.ssh/authorized_keys 2>/dev/null || echo "无 authorized_keys"'
+               echo "--- 安全审计: 已授权公钥清单(仅指纹+注释) ---"
+               ssh-keygen -lf ~/.ssh/authorized_keys 2>&1 | head -20
+               echo "--- 安全审计: 是否残留已知攻击公钥(必须为0) ---"
+               grep -c "ERLxCN6MRokchXQNQPJhN8TsInhv56xYmRUdr7VpDM9" ~/.ssh/authorized_keys 2>/dev/null || echo 0
+               echo "--- cloudflared 隧道地址 ---"
+               CPID=$(pgrep -f "cloudflared tunnel --url" | head -1)
+               echo "cloudflared PID=${CPID:-未找到}"
+               for f in /root/nohup.out /root/cloudflared.log /var/log/cloudflared.log /tmp/cloudflared.log /opt/cloudflared.log; do
+                 if [ -f "$f" ]; then echo "== $f =="; grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" "$f" | tail -2; fi
+               done
+               journalctl -u cloudflared --no-pager -n 50 2>/dev/null | grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" | tail -2'
           rc=$?
           set -e
           echo "ssh 退出码: $rc"
