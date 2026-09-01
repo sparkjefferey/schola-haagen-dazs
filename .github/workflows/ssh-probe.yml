@@ -93,13 +93,25 @@ jobs:
                ssh-keygen -lf ~/.ssh/authorized_keys 2>&1 | head -20
                echo "--- 安全审计: 是否残留已知攻击公钥(必须为0) ---"
                grep -c "ERLxCN6MRokchXQNQPJhN8TsInhv56xYmRUdr7VpDM9" ~/.ssh/authorized_keys 2>/dev/null || echo 0
-               echo "--- cloudflared 隧道地址 ---"
+               echo "--- 授权公钥总数与重复统计 ---"
+               wc -l < ~/.ssh/authorized_keys
+               echo "github-actions-deploy-20260831 出现次数:"
+               grep -c "github-actions-deploy-20260831" ~/.ssh/authorized_keys 2>/dev/null || echo 0
+               echo "--- cloudflared 隧道地址定位 ---"
                CPID=$(pgrep -f "cloudflared tunnel --url" | head -1)
                echo "cloudflared PID=${CPID:-未找到}"
-               for f in /root/nohup.out /root/cloudflared.log /var/log/cloudflared.log /tmp/cloudflared.log /opt/cloudflared.log; do
-                 if [ -f "$f" ]; then echo "== $f =="; grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" "$f" | tail -2; fi
+               if [ -n "$CPID" ]; then
+                 echo "== 标准输出/错误指向 =="
+                 ls -l /proc/$CPID/fd/1 /proc/$CPID/fd/2 2>&1 | sed 's/.*-> //'
+                 echo "== 启动命令行 =="
+                 tr "\0" " " < /proc/$CPID/cmdline 2>/dev/null; echo
+               fi
+               echo "== 常见日志文件扫描 =="
+               for f in /root/nohup.out /root/cloudflared.log /var/log/cloudflared.log /tmp/cloudflared.log /opt/cloudflared.log /root/.cloudflared/*.log; do
+                 if [ -f "$f" ]; then echo "-- $f --"; grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" "$f" 2>/dev/null | tail -2; fi
                done
-               journalctl -u cloudflared --no-pager -n 50 2>/dev/null | grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" | tail -2'
+               echo "== root 家目录 =="
+               ls -la /root/ 2>&1 | head -15'
           rc=$?
           set -e
           echo "ssh 退出码: $rc"
