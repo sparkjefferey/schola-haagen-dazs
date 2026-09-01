@@ -11,7 +11,7 @@ cd /opt/schola-haagen-dazs || exit 1
 echo "=== 1) 备份数据库 ==="
 TS=$(date +%s)
 BAK="/app/data/schola.db.bak.reset-${TS}"
-docker compose exec -T schola sh -c "cp /app/data/schola.db ${BAK} && ls -l ${BAK}"
+docker compose exec -T schola sh -c "cp /app/data/schola.db ${BAK} && ls -l ${BAK}" < /dev/null
 
 echo
 echo "=== 2) 生成新密码并写入 ==="
@@ -52,9 +52,9 @@ console.log("新密码登录校验: " + (verifyPassword(newPwd, after.password_h
 console.log("乱填密码能否通过: " + (verifyPassword("definitely-wrong", after.password_hash) ? "能(异常!)" : "不能(正常)"));
 console.log("");
 console.log(">>> rector 新密码: " + newPwd);
-'
+' < /dev/null
 
 echo
 echo "=== 3) 用新密码实际打一次登录接口 ==="
-SITE=$(docker compose exec -T schola sh -c "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login" 2>/dev/null)
+SITE=$(docker compose exec -T schola sh -c "curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/login" < /dev/null 2>/dev/null)
 echo "登录页 HTTP 状态: ${SITE}（200 即站点正常，密码请用浏览器实测）"
