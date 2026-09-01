@@ -1,15 +1,14 @@
-name: SSH Probe (read-only)
+name: Server Check (read-only)
 
-# 用途：一次性诊断 GitHub Actions runner 能否直连生产服务器。
-# 只执行只读命令（hostname / uptime / docker ps / 目录探测 / version.json），
-# 不修改服务器任何状态，不做备份、不重建容器、不 pull 代码。
-# 结论确认后本文件可删除。
+# 用途：诊断并体检生产服务器。所有远程操作都在 scripts/remote-check.sh 里，
+# 该文件只做读取与展示，不修改服务器任何状态。
+# 通过 ssh 'bash -s' 从标准输入喂给服务器执行，避免在 YAML 里嵌套引号。
 
 on:
   workflow_dispatch:
 
 jobs:
-  probe:
+  check:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
@@ -17,104 +16,57 @@ jobs:
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
     steps:
-      - name: 0) 校验配置是否齐全
+      - uses: actions/checkout@v4
+
+      - name: 0) 校验 secrets 是否齐全
         run: |
           set -eu
           missing=0
           for v in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY; do
             if [ -z "$(eval "echo \$$v")" ]; then echo "缺少 secret: $v"; missing=1; fi
           done
-          # secret 值本身不打印，只打印长度，便于确认不是空串
-          echo "DEPLOY_HOST 长度=${#DEPLOY_HOST}  DEPLOY_USER 长度=${#DEPLOY_USER}  DEPLOY_KEY 长度=${#DEPLOY_KEY}"
+          echo "各 secret 字符长度 — HOST=${#DEPLOY_HOST} USER=${#DEPLOY_USER} KEY=${#DEPLOY_KEY}"
           exit $missing
 
-      - name: 1) 网络层 — 能否拿到 SSH banner（不需要认证）
+      - name: 1) 网络层 — TCP 能否到达 22 端口
         run: |
           set -u
           echo "目标: $DEPLOY_HOST:22"
           if timeout 20 bash -c "exec 3<>/dev/tcp/$DEPLOY_HOST/22" 2>/dev/null; then
             echo "TCP 连接: OK"
-            timeout 20 bash -c "exec 3<>/dev/tcp/$DEPLOY_HOST/22; head -c 80 <&3" 2>/dev/null | tr -d '\r' || echo "banner 读取超时"
           else
-            echo "TCP 连接: 失败（端口不可达或被过滤）"
+            echo "TCP 连接: 失败"
           fi
 
-      - name: 2) 服务器主机密钥指纹（用于后续配置 host key 校验）
+      - name: 2) 服务器主机密钥指纹
         run: |
           set -u
-          echo "--- ssh-keyscan 结果 ---"
           if timeout 30 ssh-keyscan -T 20 -p 22 "$DEPLOY_HOST" > /tmp/hostkeys 2>/dev/null && [ -s /tmp/hostkeys ]; then
             ssh-keygen -lf /tmp/hostkeys
-            echo "--- 建议写入 secrets.DEPLOY_FINGERPRINT 的值（取 SHA256: 开头那串）---"
-            ssh-keygen -lf /tmp/hostkeys | awk 'NR==1{print $2}'
           else
             echo "keyscan 失败：runner 到服务器 22 端口不通"
           fi
 
-      - name: 3) 认证层 — 用 DEPLOY_KEY 只读登录
+      - name: 3) 登录并在服务器跑只读体检
         run: |
-          set -u
+          set -eu
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/probe_key
           chmod 600 ~/.ssh/probe_key
-
-          echo "--- 私钥指纹 ---"
-          ssh-keygen -lf ~/.ssh/probe_key 2>&1 || echo "私钥解析失败：secret 可能不是合法私钥"
-
-          echo "--- 由私钥反推的公钥（公钥非机密，可安全输出）---"
-          echo "请把下面整行加到服务器 ~/.ssh/authorized_keys："
-          ssh-keygen -y -f ~/.ssh/probe_key 2>&1 | sed 's/^/PUBKEY>> /'
-
-          echo "--- 尝试只读登录 ---"
+          echo "--- 使用的私钥指纹 ---"
+          ssh-keygen -lf ~/.ssh/probe_key 2>&1 || echo "私钥解析失败"
+          echo
           set +e
           ssh -i ~/.ssh/probe_key \
               -o StrictHostKeyChecking=accept-new \
               -o UserKnownHostsFile=/tmp/known_hosts \
               -o ConnectTimeout=20 \
               -o BatchMode=yes \
-              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" \
-              'echo "=== 登录成功 ==="
-               echo "hostname: $(hostname)"
-               echo "uptime:   $(uptime -p 2>/dev/null || uptime)"
-               echo "--- docker 容器(含已停止) ---"
-               docker ps -a --format "table {{.Names}}\t{{.Status}}" 2>&1 | head -10
-               echo "--- cloudflared 隧道检查 ---"
-               ps aux | grep -i "[c]loudflared" | head -3 || echo "无 cloudflared 进程"
-               systemctl is-active cloudflared 2>&1 || echo "(cloudflared 非 systemd 服务)"
-               echo "--- 本地站点 3000 端口 ---"
-               curl -s -o /dev/null -w "本地HTTP=%{http_code}\n" --max-time 10 http://127.0.0.1:3000/ 2>&1
-               echo "--- 项目目录探测 ---"
-               for d in /opt/schola-haagen-dazs /srv/schola-haagen-dazs; do
-                 [ -d "$d" ] && echo "存在: $d" || echo "不存在: $d"
-               done
-               echo "--- 线上版本 ---"
-               cat /opt/schola-haagen-dazs/public/version.json 2>&1 || echo "未找到 version.json"
-               echo "--- 安全审计: 已授权公钥清单(仅指纹+注释) ---"
-               ssh-keygen -lf ~/.ssh/authorized_keys 2>&1 | head -20
-               echo "--- 安全审计: 是否残留已知攻击公钥(必须为0) ---"
-               grep -c "ERLxCN6MRokchXQNQPJhN8TsInhv56xYmRUdr7VpDM9" ~/.ssh/authorized_keys 2>/dev/null || echo 0
-               echo "--- 授权公钥总数与重复统计 ---"
-               wc -l < ~/.ssh/authorized_keys
-               echo "github-actions-deploy-20260831 出现次数:"
-               grep -c "github-actions-deploy-20260831" ~/.ssh/authorized_keys 2>/dev/null || echo 0
-               echo "--- cloudflared 隧道地址定位 ---"
-               CPID=$(pgrep -f "cloudflared tunnel --url" | head -1)
-               echo "cloudflared PID=${CPID:-未找到}"
-               if [ -n "$CPID" ]; then
-                 echo "== 标准输出/错误指向 =="
-                 ls -l /proc/$CPID/fd/1 /proc/$CPID/fd/2 2>&1 | sed 's/.*-> //'
-                 echo "== 启动命令行 =="
-                 tr "\0" " " < /proc/$CPID/cmdline 2>/dev/null; echo
-               fi
-               echo "== 常见日志文件扫描 =="
-               for f in /root/nohup.out /root/cloudflared.log /var/log/cloudflared.log /tmp/cloudflared.log /opt/cloudflared.log /root/.cloudflared/*.log; do
-                 if [ -f "$f" ]; then echo "-- $f --"; grep -oE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" "$f" 2>/dev/null | tail -2; fi
-               done
-               echo "== root 家目录 =="
-               ls -la /root/ 2>&1 | head -15'
+              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < scripts/remote-check.sh
           rc=$?
           set -e
+          echo
           echo "ssh 退出码: $rc"
           if [ "$rc" -ne 0 ]; then
-            echo "!! 登录失败。若第 1、2 步成功说明网络通，问题在密钥认证（DEPLOY_KEY 很可能是 08-15 重装前的旧密钥）。"
+            echo "!! 远程体检未完成。若第 1、2 步成功说明网络通，问题在密钥认证。"
           fi
