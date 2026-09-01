@@ -33,7 +33,10 @@ echo "公钥清理 OK"
 echo
 
 echo "=== 2) 重启 cloudflared 隧道 ==="
-echo "启动前进程:"
+echo "先清掉所有现有 cloudflared 进程，避免残留多实例"
+pkill -f "cloudflared" 2>/dev/null || true
+sleep 4
+echo "清理后剩余:"
 pgrep -af "cloudflared" || echo "  无"
 
 LOG=/root/cloudflared.log
@@ -58,16 +61,9 @@ TUNNEL=$(grep -ohE "https://[a-zA-Z0-9._-]+\.trycloudflare\.com" "$LOG" /root/cl
 echo "$TUNNEL"
 echo
 
-echo "=== 3) 停掉不带 --logfile 的旧进程 ==="
-ALL=$(pgrep -f "cloudflared tunnel" | tr '\n' ' ')
-for p in $ALL; do
-  case " $NEW " in
-    *" $p "*) echo "保留新进程 $p" ;;
-    *) echo "停止旧进程 $p"; kill "$p" 2>/dev/null || true ;;
-  esac
-done
-sleep 3
-echo "当前全部 cloudflared 进程:"
+echo "=== 3) 检查最终进程数（应为 1）==="
+COUNT=$(pgrep -cf "cloudflared tunnel" || true)
+echo "cloudflared 进程数: $COUNT"
 pgrep -af "cloudflared" | grep -v grep || echo "  无"
 echo
 
