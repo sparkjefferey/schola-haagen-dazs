@@ -76,8 +76,13 @@ jobs:
               'echo "=== 登录成功 ==="
                echo "hostname: $(hostname)"
                echo "uptime:   $(uptime -p 2>/dev/null || uptime)"
-               echo "--- docker 容器 ---"
-               docker ps --format "table {{.Names}}\t{{.Status}}" 2>&1 | head -10
+               echo "--- docker 容器(含已停止) ---"
+               docker ps -a --format "table {{.Names}}\t{{.Status}}" 2>&1 | head -10
+               echo "--- cloudflared 隧道检查 ---"
+               ps aux | grep -i "[c]loudflared" | head -3 || echo "无 cloudflared 进程"
+               systemctl is-active cloudflared 2>&1 || echo "(cloudflared 非 systemd 服务)"
+               echo "--- 本地站点 3000 端口 ---"
+               curl -s -o /dev/null -w "本地HTTP=%{http_code}\n" --max-time 10 http://127.0.0.1:3000/ 2>&1
                echo "--- 项目目录探测 ---"
                for d in /opt/schola-haagen-dazs /srv/schola-haagen-dazs; do
                  [ -d "$d" ] && echo "存在: $d" || echo "不存在: $d"
