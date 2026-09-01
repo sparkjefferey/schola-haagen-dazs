@@ -6,17 +6,37 @@ name: Server Check (read-only)
 
 on:
   workflow_dispatch:
+    inputs:
+      script:
+        description: "要执行的脚本（必须位于 scripts/ 目录）"
+        required: false
+        default: "scripts/remote-check.sh"
+        type: string
 
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     env:
       DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
       DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
       DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      SCRIPT: ${{ inputs.script }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: 校验脚本路径白名单
+        run: |
+          set -eu
+          case "$SCRIPT" in
+            scripts/*.sh) ;;
+            *) echo "拒绝执行：只允许 scripts/ 目录下的 .sh 文件"; exit 1 ;;
+          esac
+          case "$SCRIPT" in
+            *..*|*/*/*) echo "拒绝执行：路径不允许跨目录"; exit 1 ;;
+          esac
+          test -f "$SCRIPT"
+          echo "将执行: $SCRIPT"
 
       - name: 0) 校验 secrets 是否齐全
         run: |
@@ -62,7 +82,7 @@ jobs:
               -o UserKnownHostsFile=/tmp/known_hosts \
               -o ConnectTimeout=20 \
               -o BatchMode=yes \
-              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < scripts/remote-check.sh
+              -p 22 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' < "$SCRIPT"
           rc=$?
           set -e
           echo
