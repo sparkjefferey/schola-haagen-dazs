@@ -47,6 +47,7 @@ export default function ChangePasswordForm({ e, ok }: { e?: string; ok?: string 
         改密后将注销你其他设备的登录，以防账号被盗用。
         {e === "pwd" && <span style={{ color: "var(--maroon)" }}> · 当前口令错误</span>}
         {e === "pwdlen" && <span style={{ color: "var(--maroon)" }}> · 新口令至少 6 位</span>}
+        {e === "pwdspace" && <span style={{ color: "var(--maroon)" }}> · 新口令首尾不能有空格</span>}
         {e === "pwdsame" && <span style={{ color: "var(--maroon)" }}> · 新口令不能与旧口令相同</span>}
         {ok === "pwd" && <span style={{ color: "var(--gold-deep)" }}> · 口令已更新</span>}
       </p>

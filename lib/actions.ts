@@ -90,6 +90,8 @@ export async function registerUser(formData: FormData) {
   const roleTab = role === "admin" ? "&tab=admin" : "";
 
   if (!USERNAME_RE.test(username)) redirect(`/register?e=user${roleTab}`);
+  // 口令首尾禁止空格（含全角空格等所有首尾空白）：避免"复制粘贴带空格"导致日后登录对不上
+  if (password !== password.trim()) redirect(`/register?e=passspace${roleTab}`);
   if (password.length < 6 || password.length > 256) redirect(`/register?e=pass${roleTab}`);
   // 邮箱：格式粗校验（不收邮件时不强求，但填了就必须是合法格式）；用于接收口令安全提醒等系统邮件。
   if (email && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) redirect(`/register?e=email${roleTab}`);
@@ -684,6 +686,7 @@ export async function changePasswordAction(formData: FormData) {
   if (!row || !verifyPassword(current, row.password_hash)) {
     redirect(`/users/${enc(me.username)}?e=pwd`);
   }
+  if (next !== next.trim()) redirect(`/users/${enc(me.username)}?e=pwdspace`);
   if (next.length < 6 || next.length > 256) redirect(`/users/${enc(me.username)}?e=pwdlen`);
   if (next === current) redirect(`/users/${enc(me.username)}?e=pwdsame`);
 

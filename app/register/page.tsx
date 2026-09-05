@@ -8,6 +8,7 @@ export const metadata: Metadata = { title: "入院注册" };
 const REGISTER_ERRORS: Record<string, string> = {
   user: "用户名须为 2–20 位字母、数字、下划线或汉字。",
   pass: "密码至少 6 位。",
+  passspace: "密码首尾不能有空格，请去掉首尾空格后再试。",
   taken: "该雅号已被他人先行注册，请另起一名。",
   invite: "管理者的邀请函无效、已用或已作废。",
   regrate: "注册过于频繁，已触发防刷限制。请稍候十分钟再试，或联系管理者。",
