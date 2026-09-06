@@ -18,6 +18,10 @@ services:
       - PM_DAILY_LIMIT=${PM_DAILY_LIMIT:-5}
       - SCHOLAR_CLIENT_RATE_LIMIT=${SCHOLAR_CLIENT_RATE_LIMIT:-20}
       - COOL_DOWN_HOURS=${COOL_DOWN_HOURS:-24}
+      # 论文附件上传限制（可选；格式白名单见 lib/attachment-formats.ts，文件存 schola-data 卷）
+      - ATTACHMENT_MAX_MB=${ATTACHMENT_MAX_MB:-20}
+      - ATTACHMENT_TOTAL_MB=${ATTACHMENT_TOTAL_MB:-50}
+      - ATTACHMENT_MAX_COUNT=${ATTACHMENT_MAX_COUNT:-10}
       # CORE 学术源免费密钥（可选）：去 https://core.ac.uk/services/api 免费注册，
       # 拿到 key 后填到同目录 .env 文件的 SCHOLAR_CORE_KEY=你的key，再 `docker compose up -d` 即可启用中文开放论文检索。
       - SCHOLAR_CORE_KEY=${SCHOLAR_CORE_KEY:-}

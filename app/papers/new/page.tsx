@@ -4,6 +4,9 @@ import { DISCIPLINES } from "@/lib/db";
 import { requireUser } from "@/lib/auth";
 import { createPaperAction } from "@/lib/actions";
 import { PaperAuthorEditor } from "@/components/PaperAuthorEditor";
+import { AttachmentPicker } from "@/components/AttachmentPicker";
+import { ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_COUNT, ATTACHMENT_TOTAL_BYTES } from "@/lib/attachments";
+import { formatBytes } from "@/lib/format";
 
 export const metadata: Metadata = { title: "著书立说" };
 
@@ -13,6 +16,12 @@ const PAPER_ERRORS: Record<string, string> = {
   abstract: "提要过长（限 600 字）。",
   body: "正文至少 30 字。",
   rate: "一小时之内投稿甚勤，请稍歇再著。",
+  atttype: "附件格式不受支持，或文件内容与扩展名不符（仅收常见文档、图片与压缩包）。",
+  attsize: "单个附件超过大小上限，请压缩后重试。",
+  attempty: "附件中存在空文件，无法收讫。",
+  attcount: "附件数量超出上限，请精简后重投。",
+  atttotal: "附件总大小超出上限，请精简后重投。",
+  attfail: "附件保存失败，请重试；收稿或退修期间亦可于「著者案头」补传。",
 };
 
 export default async function NewPaperPage({
@@ -39,6 +48,11 @@ export default async function NewPaperPage({
           <li>摘要以 5–10 句概述要旨，将刊于题下；关键词便于检索。</li>
           <li>作者署名请如实填列单位与通信作者；多作者请逐一增列。</li>
           <li>基金与鸣谢、投稿附言均为选填；正文支持 ## 小标题与 &gt; 引语。</li>
+          <li>
+            手稿文件（PDF、Word、PPT、图片、压缩包等）可随稿上传，单件 ≤ {formatBytes(ATTACHMENT_MAX_BYTES)}
+            、全部合计 ≤ {formatBytes(ATTACHMENT_TOTAL_BYTES)}、至多 {ATTACHMENT_MAX_COUNT} 件；
+            收稿或退修期间（及被驳回后重投）可于文稿页「著者案头」增删。
+          </li>
         </ul>
       </div>
 
@@ -77,6 +91,14 @@ export default async function NewPaperPage({
         <div className="field">
           <label htmlFor="p-body">正 文</label>
           <textarea id="p-body" name="content" required style={{ minHeight: 320 }} placeholder={"## 一、缘起\n\n此处正文（最少 30 字）。\n\n## 二、论证\n\n> 引语可用 > 起头。\n\n- 条目可用 - 开头。"} />
+        </div>
+        <div className="field">
+          <label htmlFor="p-files">附 件 / 手 稿 文 件（选填）</label>
+          <AttachmentPicker maxCount={ATTACHMENT_MAX_COUNT} maxBytes={ATTACHMENT_MAX_BYTES} totalBytes={ATTACHMENT_TOTAL_BYTES} />
+          <div className="hint">
+            支持 PDF、Word、PPT、Excel、OpenDocument、TXT/MD/CSV/TeX、PNG/JPG/GIF/WEBP、ZIP/7z/RAR/TAR.GZ；
+            内容与扩展名不符者拒收。PDF 与图片刊后可在线预览，余者点击即下载。
+          </div>
         </div>
         <div className="field">
           <label htmlFor="p-fund">基 金 与 鸣 谢（选填）</label>

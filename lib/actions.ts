@@ -27,6 +27,18 @@ import { passwordStrength } from "@/lib/password-strength";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
 import { consumeFixedWindow, resetFixedWindow, peekFixedWindow, rateLimitFingerprint } from "@/lib/rate-limit";
 import { verifyCaptcha } from "@/lib/captcha";
+import {
+  AttachmentError,
+  getAttachment,
+  inspectUploadBatch,
+  listPaperAttachmentStoredNames,
+  listUserAttachmentStoredNames,
+  removeAttachmentRow,
+  storeInspected,
+  storeUpload,
+  unlinkStoredFiles,
+  type InspectedUpload,
+} from "@/lib/attachments";
 
 const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
 
@@ -371,6 +383,21 @@ export async function createPaperAction(formData: FormData) {
   }
   if (limitAccountAction(`paper:${user.id}`, 5, HOUR_MS)) redirect("/papers/new?e=rate");
 
+  // 随稿附件（选填）：先全面校验（扩展名白名单 + 魔数 + 配额），不合格者整单打回，
+  // 不产生半截稿件。文件本体待论文行落库后写入，写盘失败则回滚稿件。
+  const picked = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.name !== "");
+  let inspected: InspectedUpload[] = [];
+  if (picked.length > 0) {
+    try {
+      inspected = await inspectUploadBatch(picked);
+    } catch (e) {
+      if (e instanceof AttachmentError) redirect(`/papers/new?e=${e.code}`);
+      throw e;
+    }
+  }
+
   // 认证学者免分诊，投稿即直送审；余者进「已收稿」待掌门分诊
   const status = user.endorsed ? "in_review" : "submitted";
   const year = new Date().getFullYear();
@@ -402,12 +429,42 @@ export async function createPaperAction(formData: FormData) {
   });
   const id = tx();
 
+  // 落盘随稿附件；任一件失败即回滚整稿（删稿级联清附件行，再回收已写文件）
+  if (inspected.length > 0) {
+    const written: { id: number; stored_name: string }[] = [];
+    try {
+      for (const ins of inspected) {
+        const att = await storeInspected(id, user.id, ins);
+        written.push({ id: att.id, stored_name: att.stored_name });
+      }
+    } catch (e) {
+      for (const w of written) {
+        try {
+          removeAttachmentRow(w);
+        } catch {
+          /* 回收尽力而为 */
+        }
+      }
+      db.prepare("DELETE FROM papers WHERE id = ?").run(id);
+      if (e instanceof AttachmentError) redirect(`/papers/new?e=${e.code}`);
+      throw e;
+    }
+  }
+
   logAudit(
     user.id,
     "paper.submit",
     `paper#${id}`,
     `${title}（${code} · ${status === "in_review" ? "直送审" : "已收稿"}）`,
   );
+  if (inspected.length > 0) {
+    logAudit(
+      user.id,
+      "paper.attachment.upload",
+      `paper#${id}`,
+      `随稿上传：${inspected.map((i) => i.file_name).join("、")}`,
+    );
+  }
   revalidatePath("/papers");
   revalidatePath("/ranking");
   revalidatePath(`/users/${user.username}`);
@@ -476,7 +533,10 @@ export async function deletePaperAction(paperId: number) {
   if (!row) fail("论文不存在");
   if (user.role !== "admin" && user.id !== row.author_id) fail("无权撤稿");
   if (row.status !== "published") fail("未刊文稿不须撤取，可在个人名册中处置");
+  // 先取存储名、删库行（级联清附件行）、成功后再回收文件：中途失败两侧俱全、可重试
+  const storedNames = listPaperAttachmentStoredNames(paperId);
   db.prepare("DELETE FROM papers WHERE id = ?").run(paperId);
+  unlinkStoredFiles(storedNames);
   logAudit(user.id, "paper.delete", `paper#${paperId}`, "撤稿");
   revalidatePath("/papers");
   revalidatePath("/ranking");
@@ -487,7 +547,9 @@ export async function discardPaperAction(paperId: number) {
   const row = db.prepare("SELECT author_id, status FROM papers WHERE id = ?").get(paperId) as any;
   if (!row || row.author_id !== user.id) throw new Error("无权处置");
   if (!["submitted", "revision", "rejected"].includes(row.status)) fail("此稿已在刊印流程中，不可弃");
+  const storedNames = listPaperAttachmentStoredNames(paperId);
   db.prepare("DELETE FROM papers WHERE id = ?").run(paperId);
+  unlinkStoredFiles(storedNames);
   logAudit(user.id, "paper.discard", `paper#${paperId}`, "作者弃稿");
   revalidatePath(`/users/${user.username}`);
 }
@@ -503,6 +565,54 @@ export async function resubmitPaperAction(paperId: number) {
   revalidatePath(`/papers/${paperId}`);
   revalidatePath("/papers");
   redirect(`/papers/${paperId}`);
+}
+
+// ---- 论文附件（多格式：PDF/Office/图片/压缩包等，扩展名白名单 + 魔数双校验） ----
+
+/** 作者在「著者案头」为未刊稿增传一件附件。 */
+export async function uploadAttachmentAction(paperId: number, formData: FormData) {
+  const user = await requireLogin();
+  const paper = db.prepare("SELECT author_id, status FROM papers WHERE id = ?").get(paperId) as any;
+  if (!paper || paper.author_id !== user.id) fail("这不是你的文稿");
+  if (!["submitted", "revision"].includes(paper.status)) {
+    fail("此稿已进入审稿流程，附件不可再增删");
+  }
+
+  const file = formData.get("file");
+  if (!(file instanceof File) || !file.name) redirect(`/papers/${paperId}?e=attnone`);
+  // 案头增传限流：与投稿（5 次/时）同源按账号计，防囤稿后并发打满附件写入
+  if (limitAccountAction(`att:${user.id}`, 30, HOUR_MS)) {
+    redirect(`/papers/${paperId}?e=attrate`);
+  }
+  try {
+    const att = await storeUpload(paperId, user.id, file);
+    logAudit(user.id, "paper.attachment.upload", `paper#${paperId}`, att.file_name);
+  } catch (e) {
+    if (e instanceof AttachmentError) redirect(`/papers/${paperId}?e=${e.code}`);
+    throw e;
+  }
+  revalidatePath(`/papers/${paperId}`);
+  revalidatePath("/admin");
+  redirect(`/papers/${paperId}?ok=att`);
+}
+
+/** 删除单件附件：作者限修订窗口内可删；掌门随时可删（如处置违规文件）。 */
+export async function deleteAttachmentAction(attId: number) {
+  const user = await requireLogin();
+  if (!Number.isInteger(attId) || attId <= 0) fail("附件编号无效");
+  const att = getAttachment(attId);
+  if (!att) fail("附件不存在");
+  const paper = db.prepare("SELECT author_id, status FROM papers WHERE id = ?").get(att.paper_id) as any;
+  if (!paper) fail("附件所属论文不存在");
+  const isOwner = paper.author_id === user.id;
+  if (!isOwner && user.role !== "admin") fail("无权删除此附件");
+  if (isOwner && !["submitted", "revision"].includes(paper.status)) {
+    fail("此稿已进入审稿流程，附件不可再增删");
+  }
+  removeAttachmentRow(att);
+  logAudit(user.id, "paper.attachment.delete", `paper#${att.paper_id}`, att.file_name);
+  revalidatePath(`/papers/${att.paper_id}`);
+  revalidatePath("/admin");
 }
 
 // ---- 掌门编辑部流水线（不重定向，交由前端 router.refresh） ----
@@ -896,7 +1006,10 @@ export async function deleteUserAction(userId: number) {
     const admins = (db.prepare("SELECT COUNT(*) AS c FROM users WHERE role = 'admin'").get() as any).c;
     if (admins <= 1) redirect("/admin?tab=members&e=last-admin");
   }
+  // 论文与附件行随外键级联删除；文件本体在行删成功后再回收，失败两侧俱全可重试
+  const attStoredNames = listUserAttachmentStoredNames(userId);
   db.prepare("DELETE FROM users WHERE id = ?").run(userId);
+  unlinkStoredFiles(attStoredNames);
   logAudit(actor.id, "user.delete", `@${target.username}`, "除籍永去");
   revalidatePath("/admin");
 }

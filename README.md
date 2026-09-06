@@ -25,6 +25,19 @@ npm run dev         # http://localhost:3000
 - 管理者（创始掌门）`rector`、学者 `sokrates`、`plato` 等。
 - 脚本不再提供默认口令；缺少 `SEED_ADMIN_PW`、`SEED_SOKRATES_PW`、`SEED_PLATO_PW` 或任一值少于 16 位时会拒绝播种。
 
+## 端到端测试（Playwright）
+
+```bash
+# 终端 1：起测试站点（务必 COOL_DOWN_HOURS=0，否则新学者投稿被冷静期拦截）
+COOL_DOWN_HOURS=0 npm run dev -p 3100        # 或：npm run build && npx next start -p 3100
+# 终端 2：跑全链路（注册→发帖→投稿带附件→案头增删→格式拒收→审稿→刊印→附件下载→处置）
+SEED_ADMIN_PW=同播种口令 npm run e2e
+```
+
+- 端口可用 `E2E_BASE_URL` 覆盖（默认 `http://localhost:3100`）。
+- 须先 `npm run db:reset && npm run seed` 播种（三个 `SEED_*_PW`）。
+- 连续多轮会触发注册限流（8 次/10 分钟），重置数据库或稍候再跑。
+
 ## 会员与门派治理（本版新增）
 
 - **自由入学 / 凭函就任**：学者可在 `/register` 自由注册；管理者必须凭掌门签发的邀请函（`R-xxxx`，见燕京阁·徽章司）宣誓就任，或由站长预设 `ADMIN_INVITE` 环境变量。
@@ -41,7 +54,8 @@ npm run dev         # http://localhost:3000
 - **首府之户（/）**：学派要旨、最新论著/论坛/学榜首五席
 - **学派志（/about）**：立学缘由、章程、两阶之制、分科之制
 - **学术论坛（/forum）**：六大栏目、发帖/回帖、删帖（本人或管理者）、检举
-- **论文库（/papers）**：分学科检索 + 全文检索；写作支持 `##` 小标题、`>` 引语、`-` 列表、`**粗体**`；仅刊印之作示人
+- **论文库（/papers）**：分学科检索 + 全文检索；**多格式附件上传**（PDF/Word/PPT/Excel/图片/压缩包等，
+  扩展名+魔数双校验，限 20MB/件、10 件/篇，可配）；写作支持 `##` 小标题、`>` 引语、`-` 列表、`**粗体**`；仅刊印之作示人
 - **作者学榜（/ranking）**：学绩分 = 论著数 × 20 + 总阅读（仅计已刊之文）
 - **学者名册（/users/用户名）**：个人论著（含待审/被打回稿的本人处置：弃稿、改稿重投）、认证徽记、封籍状态
 - **入学（/register）**：学者自由注册；管理者凭「邀请函」
@@ -51,6 +65,8 @@ npm run dev         # http://localhost:3000
 ## 数据库
 
 SQLite 单文件，位于 `data/schola.db`（已入 .gitignore）。本地重置：设置三个 `SEED_*_PW` 后运行 `npm run db:reset && npm run seed`。
+论文附件存于 `data/attachments/`（同样入 .gitignore、随 Docker `schola-data` 卷持久化）；`update.sh` 仅备份数据库，
+如需完整备份请连同 `data/attachments/` 一并拷贝。
 注意：Vercel/Netlify 等 Serverless 平台的文件系统是临时的，**不适合**本架构；请用 VPS / Docker。
 
 ## 公网访问（当前方案：Cloudflare Tunnel 免费直通车）
@@ -95,7 +111,8 @@ docker compose up -d --build
 ## 建议与后续方向（二版之后的清单)
 
 1. **安全（已大半）**：演示账号改密、邀请码强制化、登录限速、封禁即时生效均已落地；剩余：密码找回/改密（P1）、CSRF 复核。
-2. **论文功能**：版本修订历史、DOI/引用格式导出、附件上传（论文手稿 PDF）、打回后逐条批注。
+2. **论文功能**：版本修订历史、DOI/引用格式导出、~~附件上传（论文手稿 PDF）~~（已落地：多格式附件，见
+   `lib/attachment-formats.ts` 白名单）、打回后逐条批注。
 3. **内容**：markdown 所见即所得编辑器、标签系统、脚注。
 4. **社交（P1）**：邮箱找回、头像上传、徽章（如「双球之勋」）、关注学者、评论通知、私信、信任等级。
 5. **学榜完善**：引用数、评星、周榜月榜。

@@ -399,6 +399,15 @@ export function initSchema() {
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
 
+  // 附件表护栏：scripts/seed.mjs 以旧形 DDL 先建表（全新库先 seed 后首启），
+  // 此处缺列即补，防两处 DDL 漂移后运行时「no such column」。
+  addCol("paper_attachments", "file_name", "file_name TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "stored_name", "stored_name TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "ext", "ext TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "mime", "mime TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "size", "size INTEGER NOT NULL DEFAULT 0");
+  addCol("paper_attachments", "uploaded_by", "uploaded_by INTEGER NOT NULL DEFAULT 0");
+
   // ---- 迁移：用户名不区分大小写唯一 ----
   // 原 UNIQUE 约束区分大小写（"Rector" 与 "rector" 可并存），有人可借大小写变体取
   // 他人同名卡名/冒名。先给历史库中后注册的大小写同名账号追加 #N 后缀去重，
@@ -479,6 +488,22 @@ export function initSchema() {
       author_order    INTEGER NOT NULL DEFAULT 0
     );
   `);
+  // 论文附件：文件本体落盘 data/attachments/（持久卷），此处存元数据。
+  // stored_name 为服务端生成的随机名（att_<hex>.<ext>），展示名与 MIME 存库。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS paper_attachments (
+      id           INTEGER PRIMARY KEY AUTOINCREMENT,
+      paper_id     INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+      file_name    TEXT NOT NULL,
+      stored_name  TEXT NOT NULL UNIQUE,
+      ext          TEXT NOT NULL,
+      mime         TEXT NOT NULL,
+      size         INTEGER NOT NULL,
+      uploaded_by  INTEGER NOT NULL REFERENCES users(id),
+      created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_attachments ON paper_attachments(paper_id);`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS review_events (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -197,12 +197,13 @@ export function getPaper(id: number): (Paper & { author: SafeUser; authors: Pape
 export function listReviewQueue() {
   return db
     .prepare(
-      `SELECT p.*, u.username, u.display_name, u.role, u.motto, u.status AS user_status, u.created_at AS user_created_at
+      `SELECT p.*, u.username, u.display_name, u.role, u.motto, u.status AS user_status, u.created_at AS user_created_at,
+              (SELECT COUNT(*) FROM paper_attachments a WHERE a.paper_id = p.id) AS att_count
        FROM papers p JOIN users u ON u.id = p.author_id
        WHERE p.status <> 'published' ORDER BY p.created_at ASC`,
     )
     .all()
-    .map((r: any) => ({ ...rowToPaper(r), author: toAuthor(r) }));
+    .map((r: any) => ({ ...rowToPaper(r), att_count: r.att_count ?? 0, author: toAuthor(r) }));
 }
 
 export function listInvites(): (Invite & { creator_name: string })[] {

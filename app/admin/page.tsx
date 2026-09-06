@@ -233,6 +233,11 @@ function RenderReviews({ pending }: { pending: ReturnType<typeof listReviewQueue
               <span className="badge badge-dim">{p.discipline}</span>{" "}
               {p.author.display_name}（@{p.author.username}）
               {p.author.endorsed === 1 ? " ·已认证" : " ·未认证"} · {timeAgo(p.created_at)}
+              {(p as any).att_count > 0 && (
+                <span className="badge badge-dim" style={{ marginLeft: 6 }}>
+                  附件 ×{(p as any).att_count}
+                </span>
+              )}
             </div>
             {p.abstract && (
               <p style={{ fontSize: 13.5, color: "var(--ink-soft)", fontStyle: "italic", marginTop: 2 }}>

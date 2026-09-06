@@ -36,6 +36,17 @@ export function initials(name: string): string {
   return s.slice(0, 2);
 }
 
+/** 字节数人性化（附件大小展示）：< 1KB 记 1KB，混合单位只进不舍到一位小数。 */
+export function formatBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "0KB";
+  const kb = n / 1024;
+  if (kb < 1024) return `${Math.max(1, Math.ceil(kb))}KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${(Math.ceil(mb * 10) / 10).toFixed(1)}MB`;
+  const gb = mb / 1024;
+  return `${(Math.ceil(gb * 10) / 10).toFixed(1)}GB`;
+}
+
 export function avatarTone(id: number) {
   return AVATAR_ALIASES[id % AVATAR_ALIASES.length];
 }

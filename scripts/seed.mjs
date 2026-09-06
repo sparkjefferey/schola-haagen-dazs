@@ -43,6 +43,39 @@ db.exec(`
     views         INTEGER NOT NULL DEFAULT 0,
     created_at    TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- 期刊流水线相关表：全新库上 seed 先于应用首启执行，须与应用侧（lib/db.ts）保持同名同列。
+  -- papers 表本身仍按旧形创建，应用首启的轻量迁移会重建为专业期刊模型并回填稿号；
+  -- 附件等新表若将来在 lib/db.ts 加列，应用首启的 addCol 护栏会自动补齐（见 lib/db.ts）。
+  CREATE TABLE IF NOT EXISTS paper_authors (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id        INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    display_name    TEXT NOT NULL,
+    affiliation     TEXT NOT NULL DEFAULT '',
+    email           TEXT NOT NULL DEFAULT '',
+    orcid           TEXT NOT NULL DEFAULT '',
+    is_corresponding INTEGER NOT NULL DEFAULT 0,
+    author_order    INTEGER NOT NULL DEFAULT 0
+  );
+  CREATE TABLE IF NOT EXISTS review_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id    INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    from_status TEXT,
+    to_status   TEXT,
+    note        TEXT NOT NULL DEFAULT '',
+    actor_id    INTEGER,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE TABLE IF NOT EXISTS paper_attachments (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    paper_id     INTEGER NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    file_name    TEXT NOT NULL,
+    stored_name  TEXT NOT NULL UNIQUE,
+    ext          TEXT NOT NULL,
+    mime         TEXT NOT NULL,
+    size         INTEGER NOT NULL,
+    uploaded_by  INTEGER NOT NULL REFERENCES users(id),
+    created_at   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS threads (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     author_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
