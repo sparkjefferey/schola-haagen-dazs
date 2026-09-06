@@ -380,7 +380,15 @@ export function initSchema() {
   const cols = (table: string) =>
     (db.prepare(`PRAGMA table_info(${table})`).all() as any[]).map((c) => c.name);
 
+  const hasTable = (table: string) =>
+    !!db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?").get(table);
+
   const addCol = (table: string, col: string, ddl: string) => {
+    // 表还没建就跳过：PRAGMA table_info 对不存在的表返回空数组，照原逻辑会去
+    // ALTER 一张不存在的表 → 抛 no such table → 整个 initSchema 中断，后段所有
+    // 建表/迁移全部不执行（全新库部署时踩过：附件表补列写在了建表语句之前）。
+    // 跳过是安全的——本函数后段以 CREATE TABLE IF NOT EXISTS 建完整表兜底。
+    if (!hasTable(table)) return;
     if (!cols(table).includes(col)) {
       try {
         db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
@@ -398,15 +406,6 @@ export function initSchema() {
   addCol("users", "email", "email TEXT NOT NULL DEFAULT ''");
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
-
-  // 附件表护栏：scripts/seed.mjs 以旧形 DDL 先建表（全新库先 seed 后首启），
-  // 此处缺列即补，防两处 DDL 漂移后运行时「no such column」。
-  addCol("paper_attachments", "file_name", "file_name TEXT NOT NULL DEFAULT ''");
-  addCol("paper_attachments", "stored_name", "stored_name TEXT NOT NULL DEFAULT ''");
-  addCol("paper_attachments", "ext", "ext TEXT NOT NULL DEFAULT ''");
-  addCol("paper_attachments", "mime", "mime TEXT NOT NULL DEFAULT ''");
-  addCol("paper_attachments", "size", "size INTEGER NOT NULL DEFAULT 0");
-  addCol("paper_attachments", "uploaded_by", "uploaded_by INTEGER NOT NULL DEFAULT 0");
 
   // ---- 迁移：用户名不区分大小写唯一 ----
   // 原 UNIQUE 约束区分大小写（"Rector" 与 "rector" 可并存），有人可借大小写变体取
@@ -504,6 +503,14 @@ export function initSchema() {
     );
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_attachments ON paper_attachments(paper_id);`);
+  // 附件表护栏（须在建表之后）：scripts/seed.mjs 可能以旧形 DDL 先建表
+  // （全新库先 seed 后首启），此处缺列即补，防两处 DDL 漂移后运行时「no such column」。
+  addCol("paper_attachments", "file_name", "file_name TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "stored_name", "stored_name TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "ext", "ext TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "mime", "mime TEXT NOT NULL DEFAULT ''");
+  addCol("paper_attachments", "size", "size INTEGER NOT NULL DEFAULT 0");
+  addCol("paper_attachments", "uploaded_by", "uploaded_by INTEGER NOT NULL DEFAULT 0");
   db.exec(`
     CREATE TABLE IF NOT EXISTS review_events (
       id          INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -66,6 +66,12 @@ else
   echo ">> 不是 git 仓库，跳过 git pull（请确认已手动更新了代码文件）"
 fi
 
+echo ">> 重新构建并重启容器..."
+# 构建/启动任一失败即中止：version.json 只在真正上线成功后才更新，
+# 否则会出现「页面显示新 commit、实际跑的还是旧容器」的假成功。
+docker compose build
+docker compose up -d
+
 echo ">> 记录部署版本信息（供 /version 页面确认线上实际提交）..."
 mkdir -p public
 cat > public/version.json <<EOF
@@ -75,10 +81,6 @@ cat > public/version.json <<EOF
   "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
-
-echo ">> 重新构建并重启容器..."
-docker compose build
-docker compose up -d
 
 echo ""
 echo "=== 更新完成 ✅ ==="
