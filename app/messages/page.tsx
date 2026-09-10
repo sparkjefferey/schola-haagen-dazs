@@ -40,18 +40,22 @@ export default async function MessagesPage({
     : listContacts(me.id);
   const pendingCerts = isAdmin ? [] : listPendingCertRequests(me.id);
 
-  const systemUnread = (
-    db
-      .prepare(
-        "SELECT COUNT(*) AS c FROM messages WHERE kind='system' AND receiver_id=? AND read=0",
-      )
-      .get(me.id) as any
-  ).c;
+  // 正在查看的那一栏直接算已读，角标立刻归零；否则「点开了角标还挂着」，
+  // 用户会以为没生效，非刷新一次不可。
+  const systemUnread = isSystem
+    ? 0
+    : (
+        db
+          .prepare(
+            "SELECT COUNT(*) AS c FROM messages WHERE kind='system' AND receiver_id=? AND read=0",
+          )
+          .get(me.id) as any
+      ).c;
 
-  // 先取未读数（供侧栏角标），再取列表、最后标已读 —— 顺序刻意如此：
-  // 本次渲染仍能看到哪几条是未读（高亮），刷新后即归零。
-  const noticeUnread = getUnreadNoticeCount(me.id);
+  // 列表务必在标记已读之前取：本次渲染仍能看到哪几条是刚看过的（高亮），
+  // 标记随后落库，刷新即归零。
   const notices = isNotices ? listNotifications(me.id) : [];
+  const noticeUnread = isNotices ? 0 : getUnreadNoticeCount(me.id);
   if (isNotices) markNotificationsRead(me.id);
 
   let other: any = null;

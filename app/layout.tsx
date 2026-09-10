@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { headers } from "next/headers";
 import { getSessionUser } from "@/lib/auth";
 import { getAnnouncement } from "@/lib/queries";
+import { getUnreadCount } from "@/lib/messages";
 import { schoolYear } from "@/lib/format";
 import { MeanderBand } from "@/components/emblem";
 import { GreekKey, IonicColumn, Amphora, LaurelWreath } from "@/components/decor";
@@ -81,7 +82,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     </Link>
                     {user.endorsed === 1 && <span className="badge">认证学者</span>}
                     {user.role === "admin" && <span className="badge badge-admin">管理者</span>}
-                    <MessageBell />
+                    {/* 首屏即带出未读数，省掉一次客户端往返造成的红点延迟 */}
+                    <MessageBell initialCount={getUnreadCount(user.id)} />
                     {user.role === "admin" && <Link className="nitem" href="/admin">燕京阁</Link>}
                   </span>
                   <form action={logoutAction} className="inline-form">
