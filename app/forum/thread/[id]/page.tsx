@@ -70,7 +70,12 @@ export default async function ThreadPage({
       </h2>
       {thread.replies.length === 0 && <p className="empty-note" style={{ padding: 20 }}>尚无人辩难，静待高论。</p>}
       {thread.replies.map((r) => (
-        <div className="card" key={r.id} style={{ marginBottom: 16, padding: 18 }}>
+        <div
+          className="card reply-card"
+          key={r.id}
+          id={`r${r.id}`}
+          style={{ marginBottom: 16, padding: 18 }}
+        >
           <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
             <Avatar name={r.author.display_name} id={r.author.id} size={36} />
             <div>

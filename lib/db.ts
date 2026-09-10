@@ -156,6 +156,21 @@ export interface Message {
   created_at: string;
 }
 
+export interface Notification {
+  id: number;
+  owner_id: number; // 收件人（论题作者）
+  kind: "thread_reply";
+  thread_id: number;
+  last_reply_id: number | null; // 最新一条回应（被删则 SET NULL）
+  last_actor_id: number | null;
+  actors: string; // 逗号分隔的回应者名快照（最多 5 个，取最近的）
+  count: number; // 本条聚合的回应条数
+  excerpt: string; // 最新辩辞摘要
+  read: number;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Certification {
   id: number;
   requester_id: number;
@@ -319,6 +334,27 @@ export function initSchema() {
     );
     CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id, read);
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(sender_id, receiver_id, created_at);
+
+    -- 论辩回应提醒：自己的论题被人回复时生成一条（kind 目前仅 'thread_reply'，
+    -- 刻意不加 CHECK —— 日后要加 'mention' / 'cite' 之类新类别时无需重建表）。
+    -- 未读期间同一帖只留一条：count 累加、actors 记名、excerpt 更新为最新辩辞；
+    -- 作者读过之后再来的新回复才另起一条，免得热帖把讯息栏刷屏。
+    CREATE TABLE IF NOT EXISTS notifications (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      owner_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind          TEXT NOT NULL DEFAULT 'thread_reply',
+      thread_id     INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      last_reply_id INTEGER REFERENCES replies(id) ON DELETE SET NULL,
+      last_actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      actors        TEXT NOT NULL DEFAULT '',
+      count         INTEGER NOT NULL DEFAULT 1,
+      excerpt       TEXT NOT NULL DEFAULT '',
+      read          INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_notifications_owner ON notifications(owner_id, read, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
 
     -- 同侪互证：类似互相关注的成对关系。两人互证（存在 accepted 的 (A,B) 或 (B,A)）方可无限私信。
     CREATE TABLE IF NOT EXISTS certifications (

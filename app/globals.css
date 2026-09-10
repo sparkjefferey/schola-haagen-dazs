@@ -1046,6 +1046,74 @@ footer .meander {
   background: linear-gradient(180deg, var(--maroon), var(--maroon-deep));
   box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
 }
+/* 论辩回应：栏头像与通知条目（与「系统通知」并列的第二种来信） */
+.conv-avatar.reply {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-size: 18px;
+  color: var(--maroon-deep);
+  background: linear-gradient(180deg, #f5e7c4, #e0c68a);
+  box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
+}
+.notice-item {
+  display: block;
+  padding: 12px 14px 12px 15px;
+  border-left: 3px solid var(--line);
+  background: rgba(180, 147, 63, 0.06);
+  border-radius: 3px;
+  color: var(--ink);
+}
+.notice-item:hover {
+  background: rgba(180, 147, 63, 0.13);
+  text-decoration: none;
+}
+.notice-item.is-unread {
+  border-left-color: var(--maroon);
+  background: rgba(180, 147, 63, 0.13);
+}
+.notice-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.notice-head b {
+  font-size: 15px;
+  color: var(--ink);
+}
+.notice-head .meta {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+}
+.notice-title {
+  margin-top: 3px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--maroon-deep);
+}
+.notice-excerpt {
+  margin-top: 5px;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+/* 跟帖楼层锚点：从讯息栏点进来时停在该楼，并把它描出来 */
+.reply-card {
+  scroll-margin-top: 92px;
+}
+.reply-card:target {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.4);
+}
+
 .conv-meta {
   min-width: 0;
   flex: 1;

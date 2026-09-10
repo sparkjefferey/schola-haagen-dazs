@@ -13,6 +13,8 @@ import { Avatar } from "@/components/avatar";
 import { timeAgo } from "@/lib/format";
 import { ChatPanel } from "@/components/chat-panel";
 import { SystemPanel } from "@/components/system-panel";
+import { NotificationPanel } from "@/components/notification-panel";
+import { getUnreadNoticeCount, listNotifications, markNotificationsRead } from "@/lib/notifications";
 
 export const metadata = { title: "讯息" };
 
@@ -25,6 +27,7 @@ export default async function MessagesPage({
   const sp = await searchParams;
   const withParam = sp.with ?? "";
   const isSystem = withParam === "system";
+  const isNotices = withParam === "notices";
 
   // 名单门禁：管理员可见全员；其余只见与自己互证的同侪（不直接展示所有人 ID）
   const isAdmin = me.role === "admin";
@@ -45,9 +48,15 @@ export default async function MessagesPage({
       .get(me.id) as any
   ).c;
 
+  // 先取未读数（供侧栏角标），再取列表、最后标已读 —— 顺序刻意如此：
+  // 本次渲染仍能看到哪几条是未读（高亮），刷新后即归零。
+  const noticeUnread = getUnreadNoticeCount(me.id);
+  const notices = isNotices ? listNotifications(me.id) : [];
+  if (isNotices) markNotificationsRead(me.id);
+
   let other: any = null;
   let thread: any[] = [];
-  if (withParam && !isSystem) {
+  if (withParam && !isSystem && !isNotices) {
     const otherId = Number(withParam);
     if (Number.isFinite(otherId)) {
       const u = db.prepare("SELECT * FROM users WHERE id=?").get(otherId) as any;
@@ -90,6 +99,18 @@ export default async function MessagesPage({
             <div className="conv-last">门派谕令与学籍变动</div>
           </div>
           {systemUnread > 0 && <span className="msg-badge">{systemUnread}</span>}
+        </Link>
+
+        <Link
+          href="/messages?with=notices"
+          className={`conv-item ${isNotices ? "conv-active" : ""}`}
+        >
+          <div className="conv-avatar reply">辩</div>
+          <div className="conv-meta">
+            <div className="conv-name">论辩回应</div>
+            <div className="conv-last">你的论题收到的新跟帖</div>
+          </div>
+          {noticeUnread > 0 && <span className="msg-badge">{noticeUnread}</span>}
         </Link>
 
         <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
@@ -183,7 +204,9 @@ export default async function MessagesPage({
         )}
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
 
-        {isSystem ? (
+        {isNotices ? (
+          <NotificationPanel items={notices} />
+        ) : isSystem ? (
           <SystemPanel messages={sysMsgs} />
         ) : other ? (
           <ChatPanel

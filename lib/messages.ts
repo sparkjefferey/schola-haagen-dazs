@@ -1,11 +1,12 @@
 import { db, userMapper, type Message, type SafeUser } from "./db";
+import { getUnreadNoticeCount } from "./notifications";
 
-/** 当前用户的未读消息总数（私聊 + 系统）。用于顶部红点。 */
+/** 当前用户的未读讯息总数（私聊 + 系统 + 论题回应）。用于顶部红点。 */
 export function getUnreadCount(userId: number): number {
   const row = db
     .prepare("SELECT COUNT(*) AS c FROM messages WHERE receiver_id = ? AND read = 0")
     .get(userId) as { c: number };
-  return row.c;
+  return row.c + getUnreadNoticeCount(userId);
 }
 
 export interface Conversation {

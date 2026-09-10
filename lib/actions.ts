@@ -22,6 +22,7 @@ import {
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
+import { notifyThreadReply } from "@/lib/notifications";
 import { notifyWeakPassword } from "@/lib/email";
 import { passwordStrength } from "@/lib/password-strength";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
@@ -272,11 +273,25 @@ export async function replyAction(formData: FormData) {
     redirect(`/forum/thread/${threadId}?e=rate`);
   }
 
-  db.prepare("INSERT INTO replies (thread_id, author_id, content) VALUES (?, ?, ?)").run(
-    threadId,
-    user.id,
-    content,
-  );
+  const info = db
+    .prepare("INSERT INTO replies (thread_id, author_id, content) VALUES (?, ?, ?)")
+    .run(threadId, user.id, content);
+
+  // 提醒论题作者（自己回自己的帖子不打扰）：同一帖未读期间合并为一条。
+  const owner = db.prepare("SELECT author_id FROM threads WHERE id = ?").get(threadId) as
+    | { author_id: number }
+    | undefined;
+  if (owner && owner.author_id !== user.id) {
+    notifyThreadReply({
+      threadId,
+      ownerId: owner.author_id,
+      actorId: user.id,
+      actorName: user.display_name,
+      replyId: Number(info.lastInsertRowid),
+      content,
+    });
+  }
+
   revalidatePath(`/forum/thread/${threadId}`);
   redirect(`/forum/thread/${threadId}`);
 }
