@@ -145,6 +145,22 @@ export interface InspectedUpload {
   bytes: Buffer;
 }
 
+/**
+ * 判断表单里的一个 file 条目是不是"用户真的选了文件"。
+ *
+ * 坑（实测 Chromium + Next server action）：**未选择的 file 输入也会被提交**，
+ * 服务端解析出来是一个 0 字节、名字为字面量 "undefined" 的 File（不是 ""）。
+ * 若不当成"没选文件"排掉，投稿表单会被拖去校验扩展名 —
+ * "没传附件"于是被误报成"附件格式不受支持"，把无附件投稿整条路堵死。
+ */
+export function isRealUpload(f: unknown): f is File {
+  if (!(f instanceof File)) return false;
+  const name = (f.name || "").trim();
+  if (name === "") return false;
+  if (f.size === 0 && name === "undefined") return false; // 未选择文件的占位条目
+  return true;
+}
+
 /** 全面校验单个上传文件（不落盘、不写库）。任何不合格都以 AttachmentError 抛出。 */
 export async function inspectUpload(file: File): Promise<InspectedUpload> {
   if (!(file instanceof File)) throw new AttachmentError("attnone");

@@ -32,6 +32,7 @@ import {
   AttachmentError,
   getAttachment,
   inspectUploadBatch,
+  isRealUpload,
   listPaperAttachmentStoredNames,
   listUserAttachmentStoredNames,
   removeAttachmentRow,
@@ -399,9 +400,7 @@ export async function createPaperAction(formData: FormData) {
 
   // 随稿附件（选填）：先全面校验（扩展名白名单 + 魔数 + 配额），不合格者整单打回，
   // 不产生半截稿件。文件本体待论文行落库后写入，写盘失败则回滚稿件。
-  const picked = formData
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.name !== "");
+  const picked = formData.getAll("files").filter(isRealUpload);
   let inspected: InspectedUpload[] = [];
   if (picked.length > 0) {
     try {
@@ -593,7 +592,7 @@ export async function uploadAttachmentAction(paperId: number, formData: FormData
   }
 
   const file = formData.get("file");
-  if (!(file instanceof File) || !file.name) redirect(`/papers/${paperId}?e=attnone`);
+  if (!isRealUpload(file)) redirect(`/papers/${paperId}?e=attnone`);
   // 案头增传限流：与投稿（5 次/时）同源按账号计，防囤稿后并发打满附件写入
   if (limitAccountAction(`att:${user.id}`, 30, HOUR_MS)) {
     redirect(`/papers/${paperId}?e=attrate`);
