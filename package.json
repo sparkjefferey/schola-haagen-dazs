@@ -11,6 +11,7 @@
     "security:reset-access": "node scripts/incident-reset-access.mjs",
     "test:rename": "node scripts/rename-smoke.ts",
     "e2e": "node scripts/e2e.mjs",
+    "e2e:register": "node scripts/e2e-register.mjs",
     "public": "cloudflared tunnel --url http://localhost:3000"
   },
   "dependencies": {

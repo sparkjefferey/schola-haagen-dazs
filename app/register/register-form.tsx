@@ -66,8 +66,13 @@ export default function RegisterForm({
 }) {
   const [tab, setTab] = useState<"scholar" | "admin">(initialTab);
   const [error, setError] = useState<string | null>(null);
-  const [serverMessage, setServerMessage] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  // 服务端退回码要用作"首屏初值"：让提示与描红直接出现在服务端渲染出的 HTML 里，
+  // 而不是等 JS 加载完才补上（脚本没跑到也照样看得见错在哪）。
+  const initialInfo = errorCode ? REGISTER_ERRORS[errorCode] : undefined;
+  const [serverMessage, setServerMessage] = useState<string | null>(initialInfo?.message ?? null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>(
+    initialInfo?.field ? { [initialInfo.field]: initialInfo.message } : {},
+  );
   const [busy, setBusy] = useState(false);
   const [strength, setStrength] = useState<StrengthResult>(passwordStrength(""));
   const [nameInput, setNameInput] = useState("");
@@ -77,7 +82,7 @@ export default function RegisterForm({
   const usernameRef = useRef<HTMLInputElement>(null);
   const captchaRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const serverFieldRef = useRef<string | undefined>(undefined);
+  const serverFieldRef = useRef<string | undefined>(initialInfo?.field);
   const nameInputRef = useRef("");
 
   /** 收尾：清掉超时看门狗并复位 loading。任何路径（成功/失败/超时）都必须走到。 */
