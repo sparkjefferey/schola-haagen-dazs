@@ -431,6 +431,21 @@ h1, h2, h3, .display {
   margin-top: 4px;
   color: var(--ink-soft);
 }
+/* 逐栏缺项/不合规提示（注册表单）：明确说出"哪一栏、缺什么"，
+   并把该栏描红，让人一眼看到问题出在哪一格 */
+.field .field-err {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--maroon-deep);
+  margin-top: 5px;
+}
+.field input.input-invalid,
+.field textarea.input-invalid,
+.field select.input-invalid {
+  border-color: var(--maroon-deep);
+  background: #f7ded6;
+  box-shadow: 0 0 0 3px rgba(74, 30, 28, 0.08);
+}
 .field select option {
   background: var(--parch-0);
 }
