@@ -40,8 +40,7 @@ import {
   unlinkStoredFiles,
   type InspectedUpload,
 } from "@/lib/attachments";
-
-const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
+import { USERNAME_RE } from "@/lib/username";
 
 /** Location 头不能含非 ASCII 字符：用户名/查询值可能是中文，redirect 前必须百分号编码，
  *  个人页 safeDecodeSegment 会解码（含手机 WebView 双重编码场景）。 */

@@ -446,6 +446,35 @@ h1, h2, h3, .display {
   background: #f7ded6;
   box-shadow: 0 0 0 3px rgba(74, 30, 28, 0.08);
 }
+/* 雅名查重状态行（查得中/可用/被占）+ 撞名时给的备选名可点即填 */
+.field .field-tip {
+  font-size: 13px;
+  color: var(--ink-soft);
+  margin-top: 5px;
+}
+.field .field-tip.ok {
+  color: #2c5a40;
+  font-weight: 600;
+}
+.field .field-tip.bad {
+  color: var(--maroon-deep);
+  font-weight: 600;
+}
+.name-chip {
+  font-family: var(--serif);
+  font-size: 13px;
+  color: var(--maroon-deep);
+  background: var(--parch-1);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 10px;
+  margin-left: 6px;
+  cursor: pointer;
+}
+.name-chip:hover {
+  background: var(--gold-soft);
+  border-color: var(--gold-deep);
+}
 .field select option {
   background: var(--parch-0);
 }

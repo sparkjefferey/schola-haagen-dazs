@@ -3,13 +3,15 @@
 import { useEffect, useRef, useState } from "react";
 import { registerUser } from "@/lib/actions";
 import type { CaptchaChallenge } from "@/lib/captcha";
+import { REGISTER_ERRORS } from "@/lib/register-errors";
+import { normalizeUsername, usernameProblem } from "@/lib/username";
 import { passwordStrength, type StrengthResult } from "@/lib/password-strength";
 import { PasswordStrengthHint } from "@/components/password-strength-hint";
 
-// 与 lib/actions.ts 的校验保持一致（那边改了记得同步这里）。
-const USERNAME_RE = /^[a-zA-Z0-9_\-\u4e00-\u9fa5]{2,20}$/;
+// 与服务端 lib/actions.ts 的校验保持一致（那边改了记得同步这里）。
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const SUBMIT_TIMEOUT_MS = 20_000;
+const NAME_CHECK_DEBOUNCE_MS = 450;
 
 const FIELD_LABELS: Record<string, string> = {
   username: "雅名",
@@ -19,20 +21,24 @@ const FIELD_LABELS: Record<string, string> = {
   invite: "管理者邀请函",
 };
 
+type NameCheck =
+  | { state: "idle" }
+  | { state: "checking" }
+  | { state: "free"; name: string }
+  | { state: "taken"; name: string; former: boolean; suggestions: string[] }
+  | { state: "throttled"; message: string }
+  | { state: "error" };
+
 /** 前端逐项体检：哪栏没填、哪栏不合规，一次全挑明（不静默、不转圈）。 */
 function collectErrors(fd: FormData, tab: "scholar" | "admin"): Record<string, string> {
   const errors: Record<string, string> = {};
-  const username = String(fd.get("username") ?? "").trim();
   const password = String(fd.get("password") ?? "");
   const email = String(fd.get("email") ?? "").trim();
   const captchaAnswer = String(fd.get("captcha_answer") ?? "").trim();
   const invite = String(fd.get("invite") ?? "").trim();
 
-  if (!username) errors.username = "这一栏还没填：请写上你的雅名。";
-  else if (username.length < 2) errors.username = "雅名太短，至少 2 位。";
-  else if (username.length > 20) errors.username = "雅名太长，最多 20 位。";
-  else if (!USERNAME_RE.test(username))
-    errors.username = "雅名只能用字母、数字、下划线或汉字，且首尾不能有空格。";
+  const nameIssue = usernameProblem(String(fd.get("username") ?? ""));
+  if (nameIssue) errors.username = nameIssue;
 
   if (!password) errors.password = "这一栏还没填：请设置口令。";
   else if (password !== password.trim()) errors.password = "口令首尾不能有空格，请去掉首尾空格。";
@@ -51,19 +57,28 @@ function collectErrors(fd: FormData, tab: "scholar" | "admin"): Record<string, s
 export default function RegisterForm({
   initialTab = "scholar",
   captcha,
+  errorCode,
 }: {
   initialTab?: "scholar" | "admin";
   captcha: CaptchaChallenge;
+  /** 服务端退回码（?e=xxx）：用来把出错的那一栏描红并聚焦。 */
+  errorCode?: string;
 }) {
   const [tab, setTab] = useState<"scholar" | "admin">(initialTab);
   const [error, setError] = useState<string | null>(null);
+  const [serverMessage, setServerMessage] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [strength, setStrength] = useState<StrengthResult>(passwordStrength(""));
+  const [nameInput, setNameInput] = useState("");
+  const [nameCheck, setNameCheck] = useState<NameCheck>({ state: "idle" });
 
   const formRef = useRef<HTMLFormElement>(null);
+  const usernameRef = useRef<HTMLInputElement>(null);
   const captchaRef = useRef<HTMLInputElement>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const serverFieldRef = useRef<string | undefined>(undefined);
+  const nameInputRef = useRef("");
 
   /** 收尾：清掉超时看门狗并复位 loading。任何路径（成功/失败/超时）都必须走到。 */
   function settle() {
@@ -74,16 +89,27 @@ export default function RegisterForm({
     setBusy(false);
   }
 
-  // 服务端校验不过时会 redirect 回本页（如 ?e=captcha）——这是同路由软导航，
+  // 服务端校验不过时会 redirect 回本页（如 ?e=captcha、?e=taken）——这是同路由软导航，
   // 组件不会重挂载，useState 里的 busy 会一直是 true（按钮永久停在「书院注册中……」）。
-  // captcha.id 由服务端每次渲染新生成，正好当"页面已重渲"的信号，据此复位。
+  // captcha.id 由服务端每次渲染新生成，正好当"页面已重渲"的信号，据此复位；
+  // 同时把服务端点名的那一栏描红并聚焦，让人一眼看到错在哪。
   useEffect(() => {
     settle();
     setFieldErrors({});
     setError(null);
+    setServerMessage(null);
+    serverFieldRef.current = undefined;
     // 旧题的答案对新题无意义，顺手清空，避免拿旧答案撞新验证码
     if (captchaRef.current) captchaRef.current.value = "";
-  }, [captcha.id]);
+
+    const info = errorCode ? REGISTER_ERRORS[errorCode] : undefined;
+    if (!info) return;
+    setServerMessage(info.message);
+    if (!info.field) return;
+    serverFieldRef.current = info.field;
+    setFieldErrors({ [info.field]: info.message });
+    formRef.current?.querySelector<HTMLInputElement>(`[name="${info.field}"]`)?.focus();
+  }, [captcha.id, errorCode]);
 
   // 组件卸载时别留下定时器
   useEffect(
@@ -93,6 +119,42 @@ export default function RegisterForm({
     [],
   );
 
+  // 边打字边查验雅名是否被占用：撞名只有服务端知道，所以这里问一下接口，
+  // 免得填完整张表才被打回（提交时服务端仍会再判一次，这里只是提前告知）。
+  useEffect(() => {
+    const name = normalizeUsername(nameInput);
+    nameInputRef.current = name;
+    if (usernameProblem(name)) {
+      setNameCheck({ state: "idle" });
+      return;
+    }
+    setNameCheck({ state: "checking" });
+    const ctl = new AbortController();
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/username-check?u=${encodeURIComponent(name)}`, {
+          signal: ctl.signal,
+          cache: "no-store",
+        });
+        const data = await res.json();
+        if (nameInputRef.current !== name) return; // 打字比请求快，丢弃过期结果
+        if (data?.state === "free" || data?.state === "taken") {
+          setNameCheck({ ...data, name });
+        } else if (data?.state === "throttled") {
+          setNameCheck({ state: "throttled", message: data.message ?? "查名过于频繁，请稍后再试。" });
+        } else {
+          setNameCheck({ state: "error" });
+        }
+      } catch {
+        if (!ctl.signal.aborted) setNameCheck({ state: "error" });
+      }
+    }, NAME_CHECK_DEBOUNCE_MS);
+    return () => {
+      clearTimeout(t);
+      ctl.abort();
+    };
+  }, [nameInput]);
+
   function clearField(name: string) {
     setFieldErrors((prev) => {
       if (!prev[name]) return prev;
@@ -100,6 +162,30 @@ export default function RegisterForm({
       delete next[name];
       return next;
     });
+    // 服务端给的红字，用户一改该栏就撤掉，别让旧结论一直挂着
+    if (serverFieldRef.current === name) {
+      serverFieldRef.current = undefined;
+      setServerMessage(null);
+    }
+  }
+
+  /** 把问题聚焦到某一栏：描红 + 顶部汇总 + 聚焦并滚到视野中间。 */
+  function blameField(name: string, message: string, summary: string) {
+    setFieldErrors({ [name]: message });
+    setError(summary);
+    const el = formRef.current?.querySelector<HTMLInputElement>(`[name="${name}"]`);
+    el?.focus();
+    el?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }
+
+  /** 点建议名即填入雅名栏（输入框是非受控的，必须连 DOM 一起写，别只改状态）。 */
+  function pickUsername(suggestion: string) {
+    if (usernameRef.current) usernameRef.current.value = suggestion;
+    setNameInput(suggestion);
+    clearField("username");
+    serverFieldRef.current = undefined;
+    setServerMessage(null);
+    usernameRef.current?.focus();
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
@@ -120,6 +206,13 @@ export default function RegisterForm({
       const el = formRef.current?.querySelector<HTMLInputElement>(`[name="${missing[0]}"]`);
       el?.focus();
       el?.scrollIntoView({ block: "center", behavior: "smooth" });
+      return;
+    }
+
+    // 已经查到撞名就不必白跑一趟服务端（真提交时服务端还会再判，不依赖这里的结论）
+    const name = normalizeUsername(String(fd.get("username") ?? ""));
+    if (nameCheck.state === "taken" && nameCheck.name === name) {
+      blameField("username", "此雅名已被占用，请换一个（可点下方建议）。", "填写尚有问题：雅名。请按下方红字提示补正后重新提交。");
       return;
     }
 
@@ -157,6 +250,8 @@ export default function RegisterForm({
     "aria-describedby": fieldErrors[name] ? `err-${name}` : undefined,
   });
 
+  const taken = nameCheck.state === "taken" ? nameCheck : null;
+
   return (
     <>
       <div className="tabs">
@@ -179,9 +274,9 @@ export default function RegisterForm({
         </button>
       </div>
 
-      {error && (
+      {(error || serverMessage) && (
         <p className="notice" role="alert" style={{ color: "var(--maroon-deep)" }}>
-          ✗ {error}
+          ✗ {error ?? serverMessage}
         </p>
       )}
 
@@ -204,14 +299,41 @@ export default function RegisterForm({
             <label htmlFor="r-user">雅 名（用户名）</label>
             <input
               id="r-user"
+              ref={usernameRef}
               name="username"
               maxLength={20}
               placeholder="2–20 位，字母或汉字"
-              className={fieldErrors.username ? "input-invalid" : undefined}
+              className={fieldErrors.username || taken ? "input-invalid" : undefined}
               {...aria("username")}
-              onChange={() => clearField("username")}
+              onChange={(e) => {
+                setNameInput(e.target.value);
+                clearField("username");
+              }}
             />
             {fieldErr("username")}
+            {!fieldErrors.username && nameCheck.state === "checking" && (
+              <p className="field-tip">◌ 正在查验此名……</p>
+            )}
+            {!fieldErrors.username && nameCheck.state === "free" && (
+              <p className="field-tip ok">✓ 此名尚无人用，可放心注册。</p>
+            )}
+            {taken && (
+              <p className={`field-tip ${fieldErrors.username ? "" : "bad"}`}>
+                {!fieldErrors.username &&
+                  `✗ 此名已被占用${taken.former ? "（曾是某位学者的名号，依规矩不可重领）" : ""}。`}
+                {taken.suggestions.length > 0 && (
+                  <>
+                    {fieldErrors.username ? "可试：" : " 可试："}
+                    {taken.suggestions.map((s) => (
+                      <button key={s} type="button" className="name-chip" onClick={() => pickUsername(s)}>
+                        {s}
+                      </button>
+                    ))}
+                  </>
+                )}
+              </p>
+            )}
+            {nameCheck.state === "throttled" && <p className="field-tip">{nameCheck.message}</p>}
           </div>
           <div className="field">
             <label htmlFor="r-name">表 字（显示名）</label>
