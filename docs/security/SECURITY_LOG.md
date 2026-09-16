@@ -387,6 +387,46 @@
   3. 上述两项完成后方可按既定计划删除临时工作流 `ssh-probe.yml`；
      在此之前它仍是**唯一可用**的远程执行与部署通道。
 
+## 2026-09-16 23:56（Asia/Shanghai）
+
+- 事件/动作：为「迁移到 `deploy.yml`、弃用临时工作流 `ssh-probe.yml`」的既定计划做前置准备：
+  核对主机密钥指纹、修正 `deploy.yml` 中不存在的服务器路径。
+- 证据来源：workflow 的 `ssh-keyscan` 步骤输出（运行 `35117760662`）+ `deploy.yml` 历史运行记录 +
+  项目档案 `.workbuddy/memory/MEMORY.md`。
+- 观察结果：
+
+  **① 主机密钥指纹核对（回答「服务器重装后密钥是否已变」）**
+  | 类型 | 当前实际 | 档案记录 | 判定 |
+  |---|---|---|---|
+  | RSA | `SHA256:3A2oSwnX73H4UfCHevP6+6iiOt1Fz7fxKQ+e4pVTBS4` | 同左 | **逐字一致** |
+  | ED25519 | `SHA256:cWVGYJnDUnPImBQbOw6Ota6zI2bQ3JZuIIjo5H5T6yc` | `...BQbOwOta6...` | 档案**少一个字符**（42 vs 应有的 43），系笔误，已订正 |
+  | ECDSA | `SHA256:s7tWiOXYlOb/KZStKyIEAuVZiGXQOWipNOurjpHXTRI` | 未记录 | 已补录 |
+
+  → 结论：**重装 OS 后主机密钥未变**，档案中作为 `DEPLOY_FINGERPRINT` 候选的 RSA 值仍然有效。
+  已订正档案笔误，并补记「SHA256 指纹的 base64 恒为 43 字符，可据此自查手抄漏字」。
+
+  **② `deploy.yml` 历史运行揭示其停用缘由**：2026-08-15 08:49–10:03（事件发现前）多次
+  **成功**；10:37 起（事件响应提交后）**全部失败**；末次 2026-08-24 失败于 10 秒
+  （与「缺 secret 即第一步退出」的特征相符）。即该 workflow 系**在事件响应中被主动停用**
+  （改手动触发 + 移除指纹 secret），此后未恢复。
+
+  **③ 已修：服务器路径不存在**（`34d37f3`）。`cd /srv/schola-haagen-dazs` 指向不存在的目录，
+  实际为 `/opt/schola-haagen-dazs`。**此修复与档案既定计划一致**
+  （原文：「路径改 `/opt/schola-haagen-dazs`」），非自行发挥。
+  该错误此前未被暴露，是因 workflow 在 secret 校验阶段即退出、从未走到这一步。
+  YAML 已用 PyYAML 校验通过，GitHub 侧仍正常加载（`gh workflow list` 可见、active）。
+
+  **④ 未擅自改动**：`test "$DEPLOY_USER" != "root"` 与档案中「放开 root」的计划相冲突，
+  牵涉 2026-08-15 事件响应的策略取向，属项目所有者决定。仅就地加注说明，未改判定。
+- 证据等级：已确认（keyscan 实测 + 历史运行记录 + 档案交叉核对）
+- 是否修改系统：否（仅改动本仓库的 workflow 文件与项目档案；**未触碰生产**）
+- 风险：低。修改的是当前无法运行的工作流；不影响正在使用的部署通道。
+- 下一步（仍待项目所有者决定）：
+  1. **是否放开 root**——决定 `deploy.yml` 的 `DEPLOY_USER` 策略。
+  2. 决定后补 `DEPLOY_FINGERPRINT`（候选值已验证有效，见①），使 `deploy.yml` 可运行。
+  3. 上述两项完成后，方可按既定计划删除临时工作流 `ssh-probe.yml`；
+     **在那之前它仍是唯一可用的远程执行与部署通道。**
+
 ## 后续日志模板
 
 复制以下区块并追加，不要覆盖旧记录：
