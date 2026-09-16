@@ -32,6 +32,9 @@ jobs:
           test -n "$DEPLOY_USER"
           test -n "$DEPLOY_KEY"
           test -n "$DEPLOY_FINGERPRINT"
+          # 注：本行「禁止 root 部署」与项目档案中「放开 root」的既定计划相冲突。
+          # 该冲突牵涉 2026-08-15 事件响应的策略取向（本文件头部即为此而设），
+          # 属项目所有者的决定，改动前请先确认要哪一边。
           test "$DEPLOY_USER" != "root"
 
       - name: 通过 SSH 登录服务器并部署
@@ -45,7 +48,10 @@ jobs:
           port: 22
           script_stop: true
           script: |
-            cd /srv/schola-haagen-dazs
+            # 服务器上的项目目录是 /opt/schola-haagen-dazs（由 remote-check.sh /
+            # remote-deploy.sh 与历次部署日志确认）。此处原写 /srv/schola-haagen-dazs，
+            # 该目录并不存在——若本 workflow 真的跑起来会立刻在此失败。
+            cd /opt/schola-haagen-dazs
             backup_dir="$PWD/backups"
             mkdir -p "$backup_dir"
             backup_stamp="$(date -u +%Y%m%dT%H%M%SZ)"
