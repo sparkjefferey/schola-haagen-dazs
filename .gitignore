@@ -7,6 +7,8 @@ data/
 .env.local
 .DS_Store
 .workbuddy/
+# 本地助手记忆与身份档案（含个人笔记，绝不可入库）
+.workbuddy-ai/
 # 部署时由 update.sh 自动生成，记录线上 commit，不应入库
 public/version.json
 # 本地安全分析产物（已归档到 docs/security/reports/）

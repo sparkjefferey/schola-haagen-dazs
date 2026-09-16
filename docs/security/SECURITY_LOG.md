@@ -95,6 +95,171 @@
 - 风险：P1/P2 路径保持开放；供应链 S1（get.docker.com）为部署时一次性 root 执行面。
 - 下一步：按 §9.6 修订清单执行（DEPLOY_KEY 轮换、command= 限制、供应链 pin、部署链改造）。
 
+## 2026-09-16 22:46（Asia/Shanghai）
+
+- 事件/动作：修复论文库长页「滚动卡顿 + 突兀刷新」；迁移阅读量自增链路；补 `.gitignore` 遗漏项。
+- 证据来源：代码审读（`app/papers/[id]/page.tsx`、`components/view-tally.tsx`、`lib/actions.ts`、
+  `app/globals.css`）+ 真机冒烟（`next dev` + Playwright 回读计算样式）。
+- 观察结果：
+  - 阅读量自增原由 Server Action `incrementViewsAction` 承担，写库成功后调
+    `revalidatePath('/papers/{id}')` → Next.js 重渲染当前路由。该请求在页面挂载时发出、返回较晚，
+    长文页上表现为读者滚动中途整页闪烁、滚动被打断。**属可用性问题，非安全漏洞。**
+    原 V5 防刷桶（`view:<IP摘要>:<paperId>`，10 分钟 1 次）与「仅已刊印、排除作者本人」条件
+    在迁移到 `app/api/papers/[id]/view/route.ts` 后**完整保留**。
+  - 迁移时补上原缺失的账号状态校验：被封禁账号此前浏览仍会累加阅读量，现已在接口内排除
+    （`status !== 'active'` 直接返回 `ok:false`）。
+  - 新接口沿用中间件既有防线，实测：缺 `Origin` 的 POST 返回 **403**；未登录返回 `{"ok":false}`。
+  - 背景层原为 `body` 的 `background-attachment: fixed` + `body::before` / `body::after` /
+    `.greek-arch-bg` 三层 `position: fixed`（其中两层 `mix-blend-mode`），构成每帧整屏重绘与重混合。
+    已合并为单个固定合成层。**此项为性能问题，无安全含义。**
+  - **`.gitignore` 原仅忽略 `.workbuddy/`，未忽略 `.workbuddy-ai/`**（本地助手记忆目录，
+    含个人笔记与身份档案）。已补，`git check-ignore` 验证生效。**此项有安全含义**：
+    避免个人档案与本地笔记被误提交入库。
+  - 遗留：`docs/security/audits/SECURITY_ADVERSARIAL_REPORT.md` 第 155、262 行仍按旧位置引用
+    `incrementViewsAction` 与 `lib/actions.ts:531-540`。该报告为历史审计材料，按
+    `docs/security/README.md` 规则不直接改写；行号漂移在本次改动之前即已存在。
+- 证据等级：已确认（代码审读 + 真机冒烟 + 浏览器计算样式回读）
+- 是否修改系统：是（仅本地工作区源码与 `.gitignore`；未触碰生产环境、未部署）
+- 风险：低。改动不引入新攻击面；防刷与鉴权行为较改动前**更严**（新增封禁账号排除）。
+- 下一步：真机滚动验收后经 `bash update.sh` 部署；部署前建议重跑 `npm run e2e`
+  （本轮因沙箱安全删除拦截器挡住 Next 清理 `.next`，完整 `npm run build` 未能执行）。
+
+## 2026-09-16 22:55（Asia/Shanghai）
+
+- 事件/动作：在 Docker 生产构建输出中**发现生产依赖存在 3 个已知漏洞（2 high / 1 critical）**。
+  2026-08-16 的复核结论为「0 个已知生产依赖漏洞」，故属新增。本轮**未改动依赖**，仅记录与判定。
+- 证据来源：`docker compose build` 构建日志（runner 阶段 `npm ci --omit=dev` 报告
+  `3 vulnerabilities (2 high, 1 critical)`）+ 本机 `npm audit --omit=dev` + 代码可达性核查。
+- 观察结果（含**本项目可达性判定**，不照搬通用评级）：
+  1. **`next` 15.5.23 —— critical**，两个 CVE：
+     - `GHSA-p293-qw3h-jr36`「Windows 托管服务器未认证 RCE」→ **不适用**：
+       本站运行于 Debian（`node:22-slim`）容器。
+     - `GHSA-2xp9-vwfh-vxw4`「图像优化 API 处理 AVIF 时未认证 RCE」→ **实际不可达**：
+       全站未使用 `next/image`（`grep -rn "next/image" app components lib` 无命中）；
+       `lib/attachment-formats.ts` 白名单不含 AVIF，无法上传；无 `images` 配置故 `remotePatterns` 为空，
+       `/_next/image` 只能取同源本地路径，且服务器上不存在 AVIF 文件。
+     - ⚠️ 附带发现：`/_next/image` 端点默认存在，而 `middleware.ts` 的 matcher
+       **明确排除了 `_next` 前缀**，故该端点当前完全不受中间件防护。
+  2. **`nodemailer` 9.0.5 —— high**，4 个 CVE（`resolveContent()` 文件访问绕过、
+     IDN/Punycode 域白名单绕过、addressparser O(n²) ReDoS、RFC 5322 注释解析致收件域校验绕过）。
+     本站仅向**已注册用户本人**的邮箱发送弱口令提醒（`lib/email.ts`），收件域非攻击者可控
+     → 实际风险低；但 ReDoS 需评估是否有攻击者可控地址进入 addressparser。
+  3. **`sharp` 0.35.3 —— high**（libheif 漏洞）。**该版本由 `package.json` 的 `overrides`
+     精确锁定为 `0.35.3`**——即覆盖规则本身正在阻止修复版本进入，不会随 `npm install` 自动修复。
+     sharp 仅由 Next 图像优化链路使用，可达性与第 1 条同。
+- 证据等级：已确认（构建日志 + `npm audit` + 代码可达性核查）
+- 是否修改系统：否（只读审计；未改动依赖、未部署）
+- 风险：**中**。「当前不可利用」依赖三个前提——不使用 `next/image`、不收 AVIF、收件域可控。
+  **任一前提在未来被打破（如引入 `next/image`、放开 AVIF 上传、开放用户自定义收件地址），
+  第 1 条会立即转为可利用。**
+- 下一步：
+  1. 将 `overrides.sharp` 由精确 `0.35.3` 改为 `^0.35.4` 或更新，`nodemailer` 升至 `^9.1.1`——两者均为补丁级，成本低。
+  2. 评估在中间件中直接屏蔽 `/_next/image`（站点未使用该端点，属零成本收紧）。
+  3. Next.js 升级需单独决策：受影响区间覆盖 `9.5.6-canary.0`–`16.3.0-preview.10`，跨大版本；
+     仓库已有多个未合并的 dependabot 分支（next 16.x）。修复前须维持上述三个前提不被打破。
+- 附注：本轮两次尝试完整构建均未成功——本机 `npm run build` 被 CLI 安全删除垫片拦截
+  （`SAFE_DELETE_BULK_CONFIRM_REQUIRED`，Next 清理 `.next` 触发 50 文件阈值），
+  `docker compose build` 在 runner 阶段因 Docker 守护进程连接中断（`rpc error: ... EOF`）失败。
+  均属环境问题，非代码缺陷；**部署路径（`update.sh` → `docker compose build`）不受垫片影响**。
+
+## 2026-09-16 22:59（Asia/Shanghai）
+
+- 事件/动作：处置上一条（22:55）中的依赖漏洞——清除 2 个 high，并封死图像优化端点。
+  **未处理 Next.js 的 critical**（见下「待决策」）。
+- 证据来源：`package.json` / `package-lock.json` 变更 + `npm audit --omit=dev` 复测 +
+  真机冒烟（`next dev` 逐路径状态码）。
+- 观察结果：
+  - `nodemailer` `^9.0.5` → `^9.1.1`（实装 **9.1.1**，高于受影响上界 9.1.0）→ 4 个 CVE 清除。
+  - `overrides.sharp` 由精确 `0.35.3` → `^0.35.4`（实装 **0.35.4**，恰为修复版）→ libheif 漏洞清除。
+    原精确锁定正是修复无法自动进入的原因，本次一并解除。
+  - `npm audit --omit=dev` 复测：由「3 vulnerabilities (2 high, 1 critical)」降为
+    「**1 critical**」，且 sharp / nodemailer 条目均已消失。
+  - **图像优化端点已封死**：`middleware.ts` 新增 `/_next/image` → 404 分支；
+    并将 matcher 由整段排除 `_next` 改为仅排除 `_next/static` 与 `_next/webpack-hmr`
+    （否则中间件根本不会在该端点执行）。
+  - 冒烟结果：`/_next/image` **404**；`/`、`/papers`、`/forum`、`/ranking`、`/about` 均 **200**；
+    `/_next/static/css/...`、`/fonts/cinzel-400.woff2`、`/textures/parchment-v2.jpg` 均 **200**
+    （静态资源未被误伤）。`tsc --noEmit` 通过。
+  - 附带：`npm install` 因安全删除垫片拦截，在 `node_modules/` 留下两个 npm 临时目录
+    （`.sharp-g6O79iEJ`、`.nodemailer-H7Uy7xwL`，合计约 1.7MB / 98 文件）。二者不被任何代码引用，
+    `node_modules` 亦已 gitignore；容器内 `npm ci` 为全新安装，不会带入生产。
+- 证据等级：已确认（审计复测 + 真机冒烟）
+- 是否修改系统：是（`package.json`、`package-lock.json`、`middleware.ts`；未部署）
+- 风险：低。两项依赖升级均为补丁级；中间件新增分支仅拦截一个站点未使用的端点。
+- **待决策（未处理）**：`next` 仍为 15.5.23，属 critical 受影响上界。**重要更正**：
+  修复**只需补丁级升级**——仓库现有 **15.5.24 / 15.5.25**，且 `npm audit` 现给出的受影响区间为
+  `next 10.0.0 - 15.5.23`（22:55 条目中「跨大版本」的判断系当时 sharp 依赖链污染所致，已不成立）。
+  故 `15.5.23 → 15.5.25` 即可清除该 critical，成本远低于原判断。
+  未擅自执行的原因：本轮无法验证生产构建产物（见 22:55 条目附注的构建限制），
+  框架升级应在可完整构建的环境下进行。**建议由用户在本地跑通 `npm run build` 后再决定。**
+
+## 2026-09-16 23:05（Asia/Shanghai）
+
+- 事件/动作：清除上一条「待决策」中的 Next.js critical，并在**生产镜像**上完成端到端验证。
+  至此本轮依赖审计归零。
+- 证据来源：`docker compose build` 完整构建日志 + 生产容器实跑冒烟 +
+  `npm audit --omit=dev` + `tsc --noEmit`。
+- 观察结果：
+  - `next` `^15.5.6` → `^15.5.25`（实装 **15.5.25**）。确认为**补丁级**升级，
+    非 22:55 条目原先判断的「跨大版本」——该判断系当时 sharp 依赖链污染了
+    `npm audit` 区间（`15.6.0-canary.0 - 16.3.0-preview.10`）所致，sharp 修复后即消失。
+  - **`npm audit --omit=dev` 现为 `found 0 vulnerabilities`**
+    （本轮起点为 `3 vulnerabilities (2 high, 1 critical)`）。
+  - **生产构建已通过**：`docker compose build` 成功产出镜像 `scholahagen-dazs-schola`，
+    Next 构建阶段输出完整路由表，`ƒ Middleware 34.3 kB` 正常打入。
+    （本轮早前两次构建失败均属环境问题：本机 `npm run build` 被 CLI 安全删除垫片拦截；
+    首次 `docker compose build` 因 OrbStack 引擎中断而失败。）
+  - **生产容器实跑验证**（`docker run` 于 127.0.0.1:3300，验证后已移除）：
+    - 启动正常：`Next.js 15.5.25` / `Ready in 140ms`。
+    - `/_next/image` → **404**（封堵在生产模式生效）。
+    - `/`、`/papers`、`/forum`、`/ranking`、`/about`、`/login` → 均 **200**。
+    - 生产 CSP 正确：`script-src 'self' 'unsafe-inline'`（**不含 `unsafe-eval`**，与 dev 分支一致）。
+  - `tsc --noEmit` 通过。
+- 证据等级：已确认（完整生产构建 + 生产容器实跑 + 审计复测）
+- 是否修改系统：是（`package.json`、`package-lock.json`；**未部署到生产服务器**）
+- 风险：低。三个依赖升级中两个为补丁级、一个为同 minor 内补丁级；
+  中间件新增分支仅拦截站点未使用的端点，且已在生产模式验证不影响任何既有路径。
+- 下一步：本轮全部改动（滚动修复 + 依赖升级 + 端点封堵）已通过生产构建与容器冒烟，
+  可在真机滚动验收后经 `bash update.sh` 部署。
+
+## 2026-09-16 23:16（Asia/Shanghai）
+
+- 事件/动作：对 22:46 的滚动修复做**端到端真机验收**，确认「突兀刷新」已消除。
+- 证据来源：生产镜像 + Playwright（真实 Chromium）+ CDP 网络抓包 + 数据库副本注入会话。
+- 方法（未触碰生产数据）：
+  - 复制 `data/` 至临时目录，在**副本**中为 `sokrates`(id=2) 注入一条会话记录；
+  - 以该会话运行生产容器（`docker run` 挂载副本，127.0.0.1:3302）；
+  - 打开最长的一篇已刊论文 `/papers/4`（页面高度 4402px），滚动到底，全程记录网络请求。
+- 观察结果：
+  - 阅读量请求 `POST /api/papers/4/view` 发出 **1 次**，响应 `200 {"ok":true}`；
+    数据库中 `papers.views` **4 → 5** 正确自增。
+  - **当前页自身的 RSC 重渲染请求 = 0** —— 这是「突兀刷新」的判据，修复生效。
+    （作为对照，页面导航栏链接的预取请求 8 条属 Next 正常行为，均指向**其它**页面，与刷新无关。）
+  - 滚到底 `scrollY = 3480`，无中断。
+  - 顺带验证：连续第二次请求返回 `ok:false`，即 10 分钟防刷桶正常工作。
+- 证据等级：已确认（生产镜像 + 真实浏览器 + 网络抓包 + 数据库核对）
+- 是否修改系统：否（仅临时容器与数据库**副本**；生产数据与本地真库均未改动，
+  验收后临时容器、副本、脚本已全部清除）
+- 风险：无新增。
+- 下一步：本轮全部改动已具备部署条件，可经 `bash update.sh` 上线。
+
+## 2026-09-16 23:19（Asia/Shanghai）
+
+- 事件/动作：对 22:46 的背景层重构做**像素级视觉回归验证**，确认观感未被改变。
+- 证据来源：Playwright 同页面双截图（新版 CSS vs 注入的旧版 CSS，取自 `git show HEAD:app/globals.css`）
+  + sharp 逐像素比对。
+- 观察结果（1200×800，960000 像素）：
+  - **95.263% 的像素完全一致（差值 0）**
+  - 4.703% 的像素差 **1/255**；0.034% 差 **2/255**
+  - **差 3 及以上的像素：0 个**（单像素最大通道差 **2/255**，即 0.8%）
+  - 差异可视化图（放大 20 倍）几乎全黑，无任何结构性差异——不存在缺层、错位或暗角丢失。
+  - 差异仅出现在卡片外的羊皮纸区域，源自纸纹噪点由 `mix-blend-mode` 改为
+    `background-blend-mode` 后混合路径的舍入差别。
+- 证据等级：已确认（双截图逐像素比对）
+- 是否修改系统：否（仅本地临时截图与脚本，已清除）
+- 风险：无。8-bit 下 1–2 级差值为肉眼不可察觉量级。
+- 下一步：无。22:46 条目中「视觉可保持基本不变」的判断至此获得客观证据支撑。
+
 ## 后续日志模板
 
 复制以下区块并追加，不要覆盖旧记录：
