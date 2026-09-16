@@ -66,12 +66,16 @@ else
   echo ">> 不是 git 仓库，跳过 git pull（请确认已手动更新了代码文件）"
 fi
 
-echo ">> 重新构建并重启容器..."
-# 构建/启动任一失败即中止：version.json 只在真正上线成功后才更新，
-# 否则会出现「页面显示新 commit、实际跑的还是旧容器」的假成功。
-docker compose build
-docker compose up -d
-
+# 记录部署版本信息（供 /version 页面确认线上实际提交）。
+# ⚠️ 必须在 docker compose build **之前**写入：Dockerfile 会把 public/ 打进镜像
+#    （COPY --from=build /app/public ./public），容器内提供的是**构建时**的那份文件。
+#    旧做法写在构建之后，只改了宿主机、容器里恒为上一版，导致 /version 永远滞后一版
+#    ——反而彻底失去「凭 version.json 核对线上版本」的能力。
+#    放在构建前，两种结果都准确：
+#      · 构建成功 → 镜像内含本次 commit，页面显示正确；
+#      · 构建失败（set -e 中止）→ 旧容器继续服务，页面仍显示上一版 commit，与实际一致。
+#    （构建失败时宿主机的 public/version.json 已是新值，但该文件不入库、下次部署会覆盖，
+#      线上页面显示的始终是正在运行的版本，故无影响。）
 echo ">> 记录部署版本信息（供 /version 页面确认线上实际提交）..."
 mkdir -p public
 cat > public/version.json <<EOF
@@ -81,6 +85,11 @@ cat > public/version.json <<EOF
   "deployedAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
+
+echo ">> 重新构建并重启容器..."
+# 构建/启动任一失败即中止（set -e），旧容器继续服务、线上仍是上一版。
+docker compose build
+docker compose up -d
 
 echo ""
 echo "=== 更新完成 ✅ ==="

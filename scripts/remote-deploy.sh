@@ -16,7 +16,9 @@ else
   rc=$?
   echo
   echo "!!! update.sh 失败（退出码 $rc）—— 线上仍是旧版本！"
-  echo "!!! version.json 未改写；旧容器继续服务。请修复后重跑本脚本。"
+  echo "!!! 宿主机 public/version.json 已按本次 commit 改写，但新镜像未构建成功；"
+  echo "!!! 旧容器继续服务，页面显示的仍是上一版 commit（与实际运行版本一致，不会误报）。"
+  echo "!!! 请修复后重跑本脚本。"
   echo
   echo "=== 当前容器状态 ==="
   docker compose ps < /dev/null
