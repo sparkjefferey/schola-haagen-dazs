@@ -260,6 +260,43 @@
 - 风险：无。8-bit 下 1–2 级差值为肉眼不可察觉量级。
 - 下一步：无。22:46 条目中「视觉可保持基本不变」的判断至此获得客观证据支撑。
 
+## 2026-09-16 23:32（Asia/Shanghai）
+
+- 事件/动作：**本轮全部改动已部署到生产**（提交 `cef47d2` / `20f78bf` / `a2328e4`）。
+  部署后做线上验证，并发现一处部署管道缺陷。
+- 证据来源：GitHub Actions 运行 `35115181251`（部署）与 `35115862237`（只读体检）日志 +
+  对公网入口的实际 HTTP 探测。
+- 部署路径：`gh workflow run ssh-probe.yml -f script=scripts/remote-deploy.sh`
+  （注意：该工作流名为「Server Check (read-only)」，实际承担部署通道职能）。
+- 观察结果：
+  - 部署成功：数据库已备份（`backups/schola-data-preupdate-20260916T152512Z.sqlite`）、
+    镜像重建、容器 `Recreated` → `Started`、`=== update.sh 执行成功 ===`。
+  - **服务器状态干净**：授权公钥仅 1 把（`schola-deploy-2026`），
+    **已知攻击公钥残留数 0**；入侵绊线 `OK 无 /opt/ops`、`OK 无 /opt/sync.sh`；
+    cron 仅剩自建的 `schola-monitor.sh`。
+  - **线上验证（公网入口实测）**：`/_next/image` → **404**（本次加固已生效）；
+    `POST /api/papers/4/view` → **200 `{"ok":false}`**（未登录，行为正确；该路由为本次新增）；
+    对照的未知路由 → 404；`/`、`/papers`、`/forum`、`/ranking`、`/about`、`/scholar`、`/login`
+    与背景图、字体均 **200**。**新代码确已上线。**
+  - ⚠️ **发现缺陷：`/version.json` 恒为「上一次」部署的 commit。**
+    线上返回 `6d1aff5`（09-14 那次），而服务器磁盘上 `public/version.json` 已是 `a2328e4`。
+- 缺陷根因（已确认）：
+  `Dockerfile:26` 用 `COPY --from=build /app/public ./public` 把 `public/version.json`
+  **打进镜像**；而 `update.sh` 的顺序是 `docker compose build`(72) → `up -d`(73) →
+  `cat > public/version.json`(77)——**写入发生在镜像构建之后**，只改了宿主机文件，
+  容器内仍是构建时打包进去的上一版内容。因此 `/version` 页面永远滞后一版。
+  该顺序的注释（第 70 行）本意是防止「页面显示新 commit、实际跑旧容器」的假成功，
+  但实际效果适得其反：页面**从不**显示当前 commit，反而失去了核对线上版本的能力。
+- 证据等级：已确认（部署日志 + 只读体检 + 公网 HTTP 实测 + Dockerfile/update.sh 交叉核对）
+- 是否修改系统：**是——生产服务器已更新至 `a2328e4`**（含数据库前置备份）
+- 风险：低。`/version` 页面显示滞后属展示层缺陷，不影响站点功能与安全；
+  但会削弱「凭 version.json 确认线上版本」这一运维手段的可信度。
+- 下一步（待用户决定，未擅自改动）：
+  将 `update.sh` 中写 `public/version.json` 的步骤**移到 `docker compose build` 之前**。
+  如此：构建成功 → 镜像内含新 commit，页面显示正确；构建失败（`set -e` 中止）→
+  旧容器继续服务、页面仍显示上一版 commit——**语义反而更准确**，且比现状更简单。
+  注意 `deploy.yml` 同样调用 `update.sh`，一处修改两处生效。
+
 ## 后续日志模板
 
 复制以下区块并追加，不要覆盖旧记录：
