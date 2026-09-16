@@ -78,15 +78,26 @@ else
 fi
 
 # 记录部署版本信息（供 /version 页面确认线上实际提交）。
-# ⚠️ 必须在 docker compose build **之前**写入：Dockerfile 会把 public/ 打进镜像
-#    （COPY --from=build /app/public ./public），容器内提供的是**构建时**的那份文件。
-#    旧做法写在构建之后，只改了宿主机、容器里恒为上一版，导致 /version 永远滞后一版
-#    ——反而彻底失去「凭 version.json 核对线上版本」的能力。
-#    放在构建前，两种结果都准确：
-#      · 构建成功 → 镜像内含本次 commit，页面显示正确；
-#      · 构建失败（set -e 中止）→ 旧容器继续服务，页面仍显示上一版 commit，与实际一致。
-#    （构建失败时宿主机的 public/version.json 已是新值，但该文件不入库、下次部署会覆盖，
-#      线上页面显示的始终是正在运行的版本，故无影响。）
+#
+# 时机很关键，而且「两处都要准确」的两个要求方向相反，必须同时满足：
+#
+#   ① 容器内提供的 /version.json 必须正确 —— Dockerfile 会把 public/ 打进镜像
+#      （COPY --from=build /app/public ./public），容器里的是**构建时**的那份。
+#      故必须在 docker compose build **之前**写入；写在之后只改宿主机，容器内恒为
+#      上一版，/version 会永远滞后一版（本仓库曾长期如此）。
+#
+#   ② 宿主机上的 public/version.json 不能谎报 —— 巡检脚本（remote-check.sh、
+#      db-audit.yml、diagnose-login.sh 都会 cat 它）若在构建失败时读到新 commit，
+#      会误报「已上线」，即历史上的「假成功」。
+#
+# 故：先写入（满足①），构建或启动失败则**回滚**（满足②）。
+# 这样无论成功失败，容器内与宿主机两处始终一致、且都与实际运行的版本相符。
+VJSON_BAK=""
+if [ -f public/version.json ]; then
+  VJSON_BAK=$(mktemp)
+  cp -f public/version.json "$VJSON_BAK"
+fi
+
 echo ">> 记录部署版本信息（供 /version 页面确认线上实际提交）..."
 mkdir -p public
 cat > public/version.json <<EOF
@@ -98,9 +109,21 @@ cat > public/version.json <<EOF
 EOF
 
 echo ">> 重新构建并重启容器..."
-# 构建/启动任一失败即中止（set -e），旧容器继续服务、线上仍是上一版。
-docker compose build
-docker compose up -d
+# 构建/启动任一失败：回滚 version.json，使宿主机也不显示本次 commit。
+# （旧容器继续服务，其镜像内仍是上一版 —— 回滚后两处一致。）
+if docker compose build && docker compose up -d; then
+  rm -f "$VJSON_BAK"
+else
+  if [ -n "$VJSON_BAK" ] && [ -f "$VJSON_BAK" ]; then
+    cp -f "$VJSON_BAK" public/version.json
+    rm -f "$VJSON_BAK"
+    echo "!! 构建/启动失败，已回滚 public/version.json（线上仍是旧版本，容器与文件一致）"
+  else
+    rm -f public/version.json
+    echo "!! 构建/启动失败，已移除 public/version.json（原本不存在）"
+  fi
+  exit 1
+fi
 
 echo ""
 echo "=== 更新完成 ✅ ==="
