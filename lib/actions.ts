@@ -706,22 +706,9 @@ export async function rejectPaperAction(paperId: number, reason: string) {
   revalidatePath("/admin");
 }
 
-export async function incrementViewsAction(paperId: number) {
-  const user = await getSessionUser();
-  if (!user || !Number.isInteger(paperId) || paperId <= 0) return;
-  // 阅读量防刷（V5）：同一 IP 对同一论文 10 分钟只计 1 次。
-  // 正常阅读无感；脚本换账号狂刷也无法刷高学榜分。
-  const ip = await clientIp();
-  if (limitAccountAction(`view:${rateLimitFingerprint(ip)}:${paperId}`, 1, 10 * 60_000)) {
-    return;
-  }
-  const result = db
-    .prepare(
-      "UPDATE papers SET views = views + 1 WHERE id = ? AND status = 'published' AND author_id <> ?",
-    )
-    .run(paperId, user.id);
-  if (result.changes > 0) revalidatePath(`/papers/${paperId}`);
-}
+// 阅读量自增已迁出 Server Action：见 app/api/papers/[id]/view/route.ts。
+// 原 incrementViewsAction 写库成功后调 revalidatePath，会让 Next.js 重渲染当前路由，
+// 长文页上表现为「读者滚到一半整页闪一下」。阅读量无实时性需求，改由 Route Handler 只写库。
 
 // ==================== 成员处置 ====================
 

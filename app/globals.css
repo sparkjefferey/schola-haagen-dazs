@@ -146,9 +146,33 @@ body {
 }
 
 /* ---------- 中世纪羊皮纸经典著述背景 ---------- */
-/* 整页背景：一张摊开的做旧羊皮纸（真实纹理 + 岁月渍痕 + 焦旧边缘） */
+/*
+ * 性能约束（2026-09-16 修复长页滚动卡顿）：
+ * 原先把整张羊皮纸挂在 body 上并用 `background-attachment: fixed`，再叠 body::before、
+ * body::after、.greek-arch-bg 三层 position:fixed 覆盖层（其中两层带 mix-blend-mode）——
+ * 浏览器每滚一帧都要重绘并重新混合整屏，长文页（如已刊论文正文）滚动因此明显掉帧。
+ *
+ * 现在：body 只留一层平色，整张纸烘进**单个** position:fixed 伪元素，由合成器独立持有，
+ * 滚动时零重绘。纸纹噪点改用 background-blend-mode（层内混合，栅格化一次即可复用），
+ * 替代原先要求每帧与整屏重新混合的 mix-blend-mode。
+ */
 body {
+  background-color: #e7d9ba;
+}
+
+/* 整页羊皮纸画布：真实纹理 + 霉斑 + 岁月渍痕 + 焦旧边缘 + 纸纹噪点，全部烘进同一层 */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  /* 明确提升为独立合成层，避免被滚动的内容层反复触发重绘 */
+  transform: translateZ(0);
   background:
+    /* 纸张纤维颗粒：极淡噪点，与下层正片叠底，让羊皮纸有"牙口"、像旧纸印刷 */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.08'/%3E%3C/svg%3E")
+      0 0 / 240px 240px repeat,
     /* foxing 霉斑：古纸上常见的年代褐斑 */
     radial-gradient(80px 60px at 22% 35%, rgba(120, 78, 34, 0.14), transparent 80%),
     radial-gradient(60px 80px at 66% 62%, rgba(108, 70, 30, 0.12), transparent 80%),
@@ -160,36 +184,15 @@ body {
     radial-gradient(720px 520px at 86% 74%, rgba(110, 76, 36, 0.12), transparent 70%),
     radial-gradient(520px 520px at 70% 12%, rgba(96, 64, 30, 0.09), transparent 70%),
     radial-gradient(520px 460px at 30% 90%, rgba(96, 64, 30, 0.08), transparent 70%),
-    /* 暗角/焦边：让羊皮纸像从旧卷宗上裁下来的 */
+    /* 暗角/焦边：让羊皮纸像从旧卷宗上裁下来的（原 body::after 的焦痕已并入本层） */
     radial-gradient(ellipse 150% 130% at 50% 50%, transparent 48%, rgba(41, 27, 14, 0.42) 100%),
-    url("/textures/parchment-v2.jpg") top center / cover no-repeat,
-    #e7d9ba;
+    radial-gradient(ellipse 140% 110% at 50% 50%, transparent 58%, rgba(60, 36, 16, 0.18) 90%, rgba(45, 26, 12, 0.30) 100%),
+    url("/textures/parchment-v2.jpg") top center / cover no-repeat;
   background-color: #e7d9ba;
-  background-attachment: fixed;
-}
-
-/* 纸张纤维颗粒：极淡的噪点整页叠加，让羊皮纸有"牙口"、像旧纸印刷 */
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-size: 240px 240px;
-  opacity: 0.08;
-  mix-blend-mode: multiply;
-}
-
-/* 羊皮纸边缘焦痕：极淡的火焰状暗边，让纸边看起来更旧 */
-body::after {
-  content: "";
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background:
-    radial-gradient(ellipse 140% 110% at 50% 50%, transparent 58%, rgba(60, 36, 16, 0.18) 90%, rgba(45, 26, 12, 0.30) 100%);
+  /* 与上面 13 层一一对应：仅最上层的噪点做正片叠底，其余保持正常叠加。
+     数量必须写全，否则列表会循环重复到其它层上。 */
+  background-blend-mode: multiply, normal, normal, normal, normal, normal, normal, normal,
+    normal, normal, normal, normal, normal;
 }
 
 /* 古希腊神庙建筑：手稿插图式淡底，像翻开一本古典研究手稿 */
@@ -202,6 +205,10 @@ body::after {
   opacity: 0.12;
   mix-blend-mode: multiply;
   filter: sepia(0.35) contrast(0.9);
+  /* 独立合成层：它固定不动、内容也不变，栅格化一次后即可由合成器复用。
+     这里的 multiply 是与下方同样固定的羊皮纸画布（body::before）混合，
+     两者都静止，因此结果稳定、可缓存，不会像过去那样每帧重算。 */
+  transform: translateZ(0);
 }
 
 /* 内容层始终浮在建筑底图之上 */
