@@ -8,6 +8,15 @@ const SESSION_COOKIE = "schola_session";
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
+  // 封死图像优化端点。本站全站未使用 next/image（无任何 next/image 引用，
+  // 附件白名单亦不收 AVIF），该端点纯属暴露面：它默认存在、不鉴权，且历史上出过
+  // 「处理 AVIF 时未认证 RCE」与「sharp/libheif 漏洞」。站点用不到它，直接 404，
+  // 属零成本收紧。注意 matcher 原先整段排除 `_next`，故须一并放开 `/_next/image`
+  // （见文件末 matcher，仍排除 `_next/static` 等静态资源路径）。
+  if (pathname === "/_next/image" || pathname.startsWith("/_next/image/")) {
+    return new NextResponse("Not Found", { status: 404 });
+  }
+
   // 可信客户端 IP（不可被客户端伪造的前提：请求只经可信反代到达本应用）：
   // 1. CF-Connecting-IP：由 Cloudflare 边缘（cloudflared 隧道必经）写入，客户端无法伪造；
   // 2. 否则取 X-Forwarded-For 的「最后一项」——可信反代在末尾追加真实客户端 IP，
@@ -47,5 +56,10 @@ export function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next|favicon.ico|fonts|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)"],
+  // 原为 `(?!_next|...)`，整段排除 `_next` 会让图像优化端点完全不受中间件防护。
+  // 改为只排除 `_next/static`（脚本/样式/字体等静态产物，量大且无需中间件）
+  // 与 `_next/webpack-hmr`（dev 热更新），使 `/_next/image` 能进入上面的封堵分支。
+  matcher: [
+    "/((?!_next/static|_next/webpack-hmr|favicon.ico|fonts|.*\\.(?:svg|png|jpg|jpeg|gif|webp|woff2?)$).*)",
+  ],
 };
