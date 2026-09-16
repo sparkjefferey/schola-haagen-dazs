@@ -61,7 +61,18 @@ echo ">> 数据库备份完成：$backup_file"
 # 拉取最新代码（仅在是 git 仓库时）
 if [ -d .git ]; then
   echo ">> 拉取最新代码..."
+  # 自我保护：update.sh 自身也在仓库里，git pull 会改写磁盘上的它，而**正在运行的 bash
+  # 已按旧内容读取**——于是本次仍执行旧逻辑，对 update.sh 的改动要等下一次部署才生效。
+  # 本仓库就因此让「version.json 写入时机」的修复整整滞后了一个部署周期（日志里能看到
+  # 「重新构建」早于「记录部署版本信息」）。故拉取后比对自身摘要，变了就重跑新版本。
+  SELF_BEFORE=$(sha256sum "$0" 2>/dev/null | cut -d' ' -f1)
   git pull
+  SELF_AFTER=$(sha256sum "$0" 2>/dev/null | cut -d' ' -f1)
+  if [ -n "$SELF_BEFORE" ] && [ "$SELF_BEFORE" != "$SELF_AFTER" ]; then
+    echo ">> update.sh 自身已更新，重新执行新版本，使本次改动即时生效..."
+    # 第二次执行时 git pull 已是空操作，不会无限递归。
+    exec bash "$0" "$@"
+  fi
 else
   echo ">> 不是 git 仓库，跳过 git pull（请确认已手动更新了代码文件）"
 fi
