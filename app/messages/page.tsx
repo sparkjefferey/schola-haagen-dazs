@@ -5,15 +5,19 @@ import { db } from "@/lib/db";
 import {
   listContacts,
   listPendingCertRequests,
+  listSentCertRequests,
   isMutuallyCertified,
   pmQuotaUsed,
   pmDailyLimit,
 } from "@/lib/certification";
+import { searchUsers, type UserSearchResult } from "@/lib/user-search";
 import { Avatar } from "@/components/avatar";
 import { timeAgo } from "@/lib/format";
 import { ChatPanel } from "@/components/chat-panel";
 import { SystemPanel } from "@/components/system-panel";
 import { NotificationPanel } from "@/components/notification-panel";
+import { CertPanel } from "@/components/cert-panel";
+import { UserSearchResults } from "@/components/user-search-results";
 import { getUnreadNoticeCount, listNotifications, markNotificationsRead } from "@/lib/notifications";
 
 export const metadata = { title: "讯息" };
@@ -21,13 +25,19 @@ export const metadata = { title: "讯息" };
 export default async function MessagesPage({
   searchParams,
 }: {
-  searchParams: Promise<{ with?: string; e?: string; sent?: string }>;
+  searchParams: Promise<{ with?: string; e?: string; ok?: string; sent?: string; find?: string }>;
 }) {
   const me = await requireLogin();
   const sp = await searchParams;
   const withParam = sp.with ?? "";
   const isSystem = withParam === "system";
   const isNotices = withParam === "notices";
+  const isCerts = withParam === "certs";
+  const findQuery = (sp.find ?? "").trim();
+
+  // 检索态优先于会话态：一旦有检索词，主面板就归检索结果（否则从结果点申请回来
+  // 会落回某个会话，得重搜一遍）。限流与「只搜在籍者」都在 searchUsers 内处理。
+  const search: UserSearchResult | null = findQuery ? searchUsers(me.id, findQuery) : null;
 
   // 名单门禁：管理员可见全员；其余只见与自己互证的同侪（不直接展示所有人 ID）
   const isAdmin = me.role === "admin";
@@ -39,6 +49,10 @@ export default async function MessagesPage({
         .all(me.id) as any[])
     : listContacts(me.id);
   const pendingCerts = isAdmin ? [] : listPendingCertRequests(me.id);
+  const sentCerts = isAdmin ? [] : listSentCertRequests(me.id);
+  // 角标不做「看过即清零」：申请要回应了才算完，看过一眼仍挂着——
+  // 与顶部铃铛（getUnreadCount 同样计入待应允申请）口径一致，两处不会各说各话。
+  const pendingCertCount = pendingCerts.length;
 
   // 正在查看的那一栏直接算已读，角标立刻归零；否则「点开了角标还挂着」，
   // 用户会以为没生效，非刷新一次不可。
@@ -60,7 +74,7 @@ export default async function MessagesPage({
 
   let other: any = null;
   let thread: any[] = [];
-  if (withParam && !isSystem && !isNotices) {
+  if (withParam && !isSystem && !isNotices && !isCerts) {
     const otherId = Number(withParam);
     if (Number.isFinite(otherId)) {
       const u = db.prepare("SELECT * FROM users WHERE id=?").get(otherId) as any;
@@ -86,12 +100,33 @@ export default async function MessagesPage({
     !!other && (isAdmin || isMutuallyCertified(me.id, other.id));
   const remainingQuota = unlimitedWithOther ? null : Math.max(0, pmDailyLimit() - pmQuotaUsed(me.id));
 
+  // 申请/应允办完回哪儿：检索态回检索结果，否则回申请栏。actions 侧会再做
+  // 站内路径白名单校验，这里只管把当前上下文如实传过去。
+  const backPath = search
+    ? `/messages?find=${encodeURIComponent(search.query)}`
+    : "/messages?with=certs";
+
   return (
     <div className="msg-layout">
       <aside className="msg-side">
         <h2 className="section-title" style={{ fontSize: 18, margin: "4px 0 14px" }}>
           讯 息
         </h2>
+
+        <form method="get" action="/messages" className="user-search">
+          <input
+            name="find"
+            type="search"
+            autoComplete="off"
+            maxLength={24}
+            defaultValue={findQuery}
+            placeholder="学号 #7 · 雅名 · 用户名"
+            aria-label="检索同窗"
+          />
+          <button className="btn btn-sm" type="submit">
+            检 索
+          </button>
+        </form>
 
         <Link
           href="/messages?with=system"
@@ -117,34 +152,27 @@ export default async function MessagesPage({
           {noticeUnread > 0 && <span className="msg-badge">{noticeUnread}</span>}
         </Link>
 
-        <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
-
-        {pendingCerts.length > 0 && (
-          <div
-            className="card"
-            style={{
-              padding: "10px 12px",
-              marginBottom: 10,
-              borderLeft: "3px solid var(--gold-deep)",
-              fontSize: 13,
-            }}
+        {(!isAdmin || pendingCertCount > 0) && (
+          <Link
+            href="/messages?with=certs"
+            className={`conv-item ${isCerts ? "conv-active" : ""}`}
           >
-            <b>同侪互证待你回应：</b>
-            {pendingCerts.map((p, i) => (
-              <span key={p.id}>
-                {i > 0 && "、"}
-                <Link href={`/users/${p.username}`} style={{ color: "var(--maroon-deep)", fontWeight: 600 }}>
-                  {p.display_name}
-                </Link>
-              </span>
-            ))}
-            <span className="meta"> 赴其名册页应允后即可无限私信。</span>
-          </div>
+            <div className="conv-avatar friend">友</div>
+            <div className="conv-meta">
+              <div className="conv-name">学友申请</div>
+              <div className="conv-last">
+                {pendingCertCount > 0 ? "有申请待你应允" : "同侪互证 · 应允后可无限私信"}
+              </div>
+            </div>
+            {pendingCertCount > 0 && <span className="msg-badge">{pendingCertCount}</span>}
+          </Link>
         )}
+
+        <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
 
         {conversations.length === 0 && (
           <p className="empty-note" style={{ padding: "12px 6px", fontSize: 13 }}>
-            尚无私聊。可从下方与已互证同侪交谈，或赴他人名册页请求互证。
+            尚无私聊。用上方检索找人发起学友申请，或赴他人名册页请求互证。
           </p>
         )}
         {conversations.map((c) => {
@@ -173,7 +201,7 @@ export default async function MessagesPage({
         })}
 
         <details className="new-pm" style={{ marginTop: 14 }}>
-          <summary>＋ 新私聊</summary>
+          <summary>＋ 学友名录（{activeUsers.length}）</summary>
           <div className="pm-userlist">
             {activeUsers.map((u) => (
               <Link key={u.id} href={`/messages?with=${u.id}`} className="pm-user">
@@ -182,7 +210,7 @@ export default async function MessagesPage({
             ))}
             {activeUsers.length === 0 && !isAdmin && (
               <p className="empty-note" style={{ padding: "8px 4px", fontSize: 12 }}>
-                尚无互证同侪。赴他人名册页发起互证后，即可在此无限私信。
+                尚无互证同侪。用上方检索找人发起申请，应允后即可在此无限私信。
               </p>
             )}
           </div>
@@ -206,12 +234,41 @@ export default async function MessagesPage({
         {sp.e === "admin_limit" && (
           <div className="msg-note err">你向该管理者发送私信的个人额度已满，请稍后再试。</div>
         )}
+        {sp.e === "cert_rate" && <div className="msg-note err">互证申请过于频繁，请稍后再试。</div>}
+        {sp.e === "cert_none" && <div className="msg-note err">没有待你回应的互证申请（可能已被处理）。</div>}
+        {sp.e === "cert_nouser" && <div className="msg-note err">该用户不存在或已离馆。</div>}
+        {sp.e === "cert_admin" && <div className="msg-note err">管理者无需同侪互证。</div>}
+        {sp.e === "cert_self" && <div className="msg-note err">不能与自己互证。</div>}
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
+        {sp.ok === "cert_sent" && <div className="msg-note ok">已发出学友申请，待对方应允。</div>}
+        {sp.ok === "cert_mutual" && (
+          <div className="msg-note ok">对方已先发起申请，你们已互为学友，可无限私信。</div>
+        )}
+        {sp.ok === "cert_accepted" && <div className="msg-note ok">已应允，你们现为学友，可无限私信。</div>}
+        {sp.ok === "cert_declined" && <div className="msg-note ok">已婉拒该申请。</div>}
 
-        {isNotices ? (
+        {search ? (
+          search.ok ? (
+            <UserSearchResults
+              query={search.query}
+              hits={search.hits}
+              meRole={me.role}
+              backPath={backPath}
+            />
+          ) : (
+            <div className="card" style={{ padding: "22px 20px" }}>
+              <p className="empty-note" style={{ padding: 0 }}>
+                检索过于频繁（每 10 分钟 30 次），请稍后再试。
+                若确有需要，可径赴对方名册页。
+              </p>
+            </div>
+          )
+        ) : isNotices ? (
           <NotificationPanel items={notices} />
         ) : isSystem ? (
           <SystemPanel messages={sysMsgs} />
+        ) : isCerts ? (
+          <CertPanel received={pendingCerts} sent={sentCerts} backPath={backPath} />
         ) : other ? (
           <ChatPanel
             other={other}
@@ -222,7 +279,9 @@ export default async function MessagesPage({
           />
         ) : (
           <div className="chat-empty">
-            <p>选择左侧会话，或与同侪开启私聊。</p>
+            <p style={{ textAlign: "center", padding: "0 20px" }}>
+              选择左侧会话，或用上方检索找人开启私聊。
+            </p>
           </div>
         )}
       </section>

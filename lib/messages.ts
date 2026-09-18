@@ -1,12 +1,20 @@
 import { db, userMapper, type Message, type SafeUser } from "./db";
 import { getUnreadNoticeCount } from "./notifications";
+import { getPendingCertCount } from "./certification";
 
-/** 当前用户的未读讯息总数（私聊 + 系统 + 论题回应）。用于顶部红点。 */
+/**
+ * 当前用户的未读讯息总数（私聊 + 系统 + 论题回应 + 待我应允的互证申请）。
+ * 用于顶部红点。
+ *
+ * 互证申请计入此数（而非只算它顺带产生的那条系统消息）：申请是要「回应」的，
+ * 光读过通知不算完，红点得一直挂到应允或婉拒为止——否则「点了红点还在」或
+ * 「红点先没了、事还欠着」，两头都不对。
+ */
 export function getUnreadCount(userId: number): number {
   const row = db
     .prepare("SELECT COUNT(*) AS c FROM messages WHERE receiver_id = ? AND read = 0")
     .get(userId) as { c: number };
-  return row.c + getUnreadNoticeCount(userId);
+  return row.c + getUnreadNoticeCount(userId) + getPendingCertCount(userId);
 }
 
 export interface Conversation {

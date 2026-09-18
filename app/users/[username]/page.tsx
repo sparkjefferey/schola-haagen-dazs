@@ -96,6 +96,8 @@ export default async function UserPage({
         <h1 style={{ margin: "14px 0 4px" }}>{user.display_name}</h1>
         <div>
           <span className="badge">@{user.username}</span>{" "}
+          {/* 学号即名册编号（users.id）：可在讯息页按它检索，故须示人方能相寄 */}
+          <span className="uin">学号 #{user.id}</span>{" "}
           {user.role === "admin" ? (
             <span className="badge badge-admin">学派管理者</span>
           ) : (
@@ -301,7 +303,10 @@ export default async function UserPage({
         )}
 
         {certRel && (
-          <p className="meta" style={{ marginTop: 12 }}>
+          // 必须是 div：块级 <form> 不能放进 <p>（浏览器解析时会提前闭合 <p>，
+          // 服务端 DOM 与客户端虚拟树对不上 → React 水合报错 #418，该子树被整棵重建）。
+          // margin 显式写全，补上原先 <p> 默认的上下外边距。
+          <div className="meta" style={{ margin: "12px 0 16px" }}>
             {certRel === "none" && (
               <form action={requestCertificationAction.bind(null, user.id)} style={{ display: "inline" }}>
                 <button className="btn btn-sm" type="submit">请 求 同 侪 互 证</button>
@@ -330,7 +335,7 @@ export default async function UserPage({
                 </form>
               </>
             )}
-          </p>
+          </div>
         )}
 
         {sp?.ok === "cert_sent" && <p className="meta" style={{ color: "var(--gold-deep)" }}>已发出互证请求，待对方应允。</p>}

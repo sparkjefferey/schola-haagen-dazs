@@ -47,6 +47,42 @@ import { USERNAME_RE } from "@/lib/username";
  *  个人页 safeDecodeSegment 会解码（含手机 WebView 双重编码场景）。 */
 const enc = (s: string) => encodeURIComponent(s);
 
+/**
+ * 名册页的缓存失效。用户名可能是中文，**必须先编码**再交给 revalidatePath：
+ * Next 会把路径当作缓存标签（`_N_T_/users/<名>`）写进内部转发请求的
+ * `x-next-revalidated-tags` 头，而 fetch 的头值只收 ByteString，原始中文会让它
+ * 直接抛错 → 整个表单动作返回 500。
+ *
+ * 症状有迷惑性：客户端仍会照 `x-action-redirect` 跳转，动作的写库也确实生效，
+ * 只是退化成整页刷新，页面上看不出异常——只有服务端日志和网络面板里才有那记 500。
+ */
+function revalidateUser(username: string) {
+  revalidatePath(`/users/${enc(username)}`);
+}
+
+/** 只放行站内绝对路径：协议相对（`//evil.com`）、反斜杠变体、含换行的一律退回默认页，
+ *  杜绝把 redirect 目标交给请求方指定后变成开放重定向。 */
+function safeBackPath(raw: unknown, fallback: string): string {
+  const s = String(raw ?? "").trim();
+  if (!s.startsWith("/") || s.startsWith("//") || s.includes("\\") || /[\r\n\t]/.test(s)) {
+    return fallback;
+  }
+  return s;
+}
+
+/** 在路径上追加查询提示参数，保留其原有 query。 */
+function withQuery(path: string, params: Record<string, string>): string {
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+    .join("&");
+  return `${path}${path.includes("?") ? "&" : "?"}${qs}`;
+}
+
+/** 办完事回来源页（讯息页检索结果/申请栏传回），没传来源就按老路径回名册页。 */
+function backWith(dest: string, fallbackPath: string, key: "e" | "ok", value: string): never {
+  redirect(withQuery(dest || fallbackPath, { [key]: value }));
+}
+
 function fail(message: string): never {
   throw new Error(message);
 }
@@ -480,7 +516,7 @@ export async function createPaperAction(formData: FormData) {
   }
   revalidatePath("/papers");
   revalidatePath("/ranking");
-  revalidatePath(`/users/${user.username}`);
+  revalidateUser(user.username);
   redirect(`/papers/${id}`);
 }
 
@@ -564,7 +600,7 @@ export async function discardPaperAction(paperId: number) {
   db.prepare("DELETE FROM papers WHERE id = ?").run(paperId);
   unlinkStoredFiles(storedNames);
   logAudit(user.id, "paper.discard", `paper#${paperId}`, "作者弃稿");
-  revalidatePath(`/users/${user.username}`);
+  revalidateUser(user.username);
 }
 
 export async function resubmitPaperAction(paperId: number) {
@@ -782,7 +818,7 @@ export async function claimAdminAction(formData: FormData) {
   db.prepare("UPDATE users SET role = 'admin' WHERE id = ?").run(me.id);
   logAudit(me.id, "admin.claim", `@${me.username}`, "凭邀请函就任管理者");
   sendSystemMessage(me.id, "你已凭邀请函就任学派管理者，自此可入燕京阁调度学务。");
-  revalidatePath(`/users/${me.username}`);
+  revalidateUser(me.username);
   redirect(`/users/${enc(me.username)}?ok=${enc("就任")}`);
 }
 
@@ -813,7 +849,7 @@ export async function changePasswordAction(formData: FormData) {
     await notifyWeakPassword({ userId: me.id, email: u?.email ?? "", username: me.username });
   }
 
-  revalidatePath(`/users/${me.username}`);
+  revalidateUser(me.username);
   redirect(`/users/${enc(me.username)}?ok=pwd`);
 }
 
@@ -826,7 +862,7 @@ export async function updateEmailAction(formData: FormData) {
   }
   db.prepare("UPDATE users SET email = ? WHERE id = ?").run(email, me.id);
   logAudit(me.id, "account.email", `@${me.username}`, email ? "更新联系邮箱" : "清除联系邮箱");
-  revalidatePath(`/users/${me.username}`);
+  revalidateUser(me.username);
   redirect(`/users/${enc(me.username)}?ok=email`);
 }
 
@@ -884,7 +920,7 @@ export async function requestRenameAction(formData: FormData) {
   ).run(me.id, me.username, newUsername, reason, me.id);
   if (inserted.changes !== 1) redirect(`/users/${enc(me.username)}?e=renamepending`);
   logAudit(me.id, "rename.request", `@${me.username}`, `申请改名 → @${newUsername}${reason ? `（${reason}）` : ""}`);
-  revalidatePath(`/users/${me.username}`);
+  revalidateUser(me.username);
   redirect(`/users/${enc(me.username)}?ok=rename`);
 }
 
@@ -938,8 +974,8 @@ export async function respondRenameAction(requestId: number, approve: boolean, n
       target.id,
       `你的改名申请已蒙掌门应允：@${req.old_username} 今更名 @${req.new_username}。旧名保留重定向，他人所留旧链接仍可抵达。`,
     );
-    revalidatePath(`/users/${req.old_username}`);
-    revalidatePath(`/users/${req.new_username}`);
+    revalidateUser(req.old_username);
+    revalidateUser(req.new_username);
     revalidatePath("/admin");
     revalidatePath("/ranking");
     revalidatePath("/");
@@ -957,7 +993,7 @@ export async function respondRenameAction(requestId: number, approve: boolean, n
     target.id,
     `你的改名申请（→ @${req.new_username}）被掌门婉拒${noteCleaned ? `：${noteCleaned}` : ""}。7 天后可再次提交。`,
   );
-  revalidatePath(`/users/${target.username}`);
+  revalidateUser(target.username);
   redirect(`/admin?tab=renames&ok=${encodeURIComponent("已婉拒并致函申请人")}`);
 }
 
@@ -978,7 +1014,7 @@ export async function updateDisplayNameAction(formData: FormData) {
   }
   db.prepare("UPDATE users SET display_name = ? WHERE id = ?").run(newName, me.id);
   logAudit(me.id, "account.display_name", `@${me.username}`, `雅名更易：${me.display_name} → ${newName}`);
-  revalidatePath(`/users/${me.username}`);
+  revalidateUser(me.username);
   revalidatePath("/ranking");
   revalidatePath("/");
   revalidatePath("/admin");
@@ -992,7 +1028,7 @@ export async function setUserEndorsedAction(userId: number, endorsed: 0 | 1) {
   db.prepare("UPDATE users SET endorsed = ? WHERE id = ?").run(endorsed || 0, userId);
   logAudit(actor.id, `endorse.${endorsed ? "grant" : "revoke"}`, `@${target.username}`, endorsed ? "授认证学者印" : "收回认证印");
   revalidatePath("/admin");
-  revalidatePath(`/users/${target.username}`);
+  revalidateUser(target.username);
 }
 
 export async function deleteUserAction(userId: number) {
@@ -1131,18 +1167,26 @@ export async function sendMessageInline(receiverId: number, bodyRaw: string): Pr
 }
 
 // ==================== 同侪互证（互相关注式） ====================
+// 互证即「学友」关系：互证双方可无限私聊。申请入口除名册页外，还有讯息页的
+// 学友检索——两者共用本组动作，`back` 参数决定办完回哪个页面（为空则回名册页）。
 
-export async function requestCertificationAction(targetId: number) {
+/**
+ * 发起互证申请。讯息页的表单会附一个 `back` 字段（如 `/messages?find=张三`），
+ * 办完回到原处，免得从检索结果点一下就被甩到对方名册页、还得自己找回来；
+ * 名册页不附此字段，仍按老规矩回名册页。
+ */
+export async function requestCertificationAction(targetId: number, formData?: FormData) {
   const me = await requireLogin();
-  if (targetId === me.id) redirect(`/users/${enc(me.username)}?e=cert_self`);
+  const dest = safeBackPath(formData?.get("back"), "");
+  if (targetId === me.id) backWith(dest, `/users/${enc(me.username)}`, "e", "cert_self");
 
   const target = db
     .prepare("SELECT id, username, display_name, role, status FROM users WHERE id = ?")
     .get(targetId) as any;
-  if (!target || target.status !== "active") redirect(`/users/${enc(me.username)}?e=cert_nouser`);
-  if (me.role === "admin" || target.role === "admin") redirect(`/users/${enc(me.username)}?e=cert_admin`);
+  if (!target || target.status !== "active") backWith(dest, `/users/${enc(me.username)}`, "e", "cert_nouser");
+  if (me.role === "admin" || target.role === "admin") backWith(dest, `/users/${enc(me.username)}`, "e", "cert_admin");
   if (limitAccountAction(`cert:${me.id}`, 5, HOUR_MS)) {
-    redirect(`/users/${enc(target.username)}?e=cert_rate`);
+    backWith(dest, `/users/${enc(target.username)}`, "e", "cert_rate");
   }
 
   const meName = me.display_name;
@@ -1166,35 +1210,41 @@ export async function requestCertificationAction(targetId: number) {
       if (mine.status === "accepted") return "already";
       if (mine.status === "pending") return "pending";
       db.prepare("UPDATE certifications SET status='pending', responded_at=NULL, created_at=datetime('now') WHERE id=?").run(mine.id);
-      sendSystemMessage(targetId, `${meName} 再次请求与你同侪互证。`);
       return "sent";
     }
+    // 申请本身不发系统消息：它在讯息页「学友申请」栏里带着红点等对方回应，
+    // 比混在系统通知里更显眼，也应允得了（不必再跑一趟对方名册页）。
     db.prepare("INSERT INTO certifications (requester_id, responder_id, status) VALUES (?, ?, 'pending')").run(
       me.id,
       targetId,
     );
-    sendSystemMessage(targetId, `${meName} 请求与你同侪互证。请赴其名册页应允，互证后即可无限私信。`);
     return "sent";
   });
   const outcome = tx();
 
   logAudit(me.id, "cert.request", `@${target.username}`, outcome);
   revalidatePath("/messages");
-  revalidatePath(`/users/${me.username}`);
-  revalidatePath(`/users/${target.username}`);
-  redirect(
-    `/users/${target.username}?ok=${outcome === "mutual" ? "cert_mutual" : "cert_sent"}`,
+  revalidateUser(me.username);
+  revalidateUser(target.username);
+  backWith(
+    dest,
+    `/users/${enc(target.username)}`,
+    "ok",
+    outcome === "mutual" ? "cert_mutual" : "cert_sent",
   );
 }
 
-export async function respondCertificationAction(targetId: number, accept: boolean) {
+/** 应允或婉拒互证申请。`back` 同 requestCertificationAction：讯息页「学友申请」栏
+ *  可就地应允，不必跳名册页。 */
+export async function respondCertificationAction(targetId: number, accept: boolean, formData?: FormData) {
   const me = await requireLogin();
+  const dest = safeBackPath(formData?.get("back"), "");
   const row = db
     .prepare("SELECT id FROM certifications WHERE requester_id=? AND responder_id=? AND status='pending'")
     .get(targetId, me.id) as any;
-  if (!row) redirect(`/users/${enc(me.username)}?e=cert_none`);
+  if (!row) backWith(dest, `/users/${enc(me.username)}`, "e", "cert_none");
   const target = db.prepare("SELECT username, display_name FROM users WHERE id = ?").get(targetId) as any;
-  if (!target) redirect(`/users/${enc(me.username)}?e=cert_none`);
+  if (!target) backWith(dest, `/users/${enc(me.username)}`, "e", "cert_none");
 
   const meName = me.display_name;
   const tx = db.transaction(() => {
@@ -1215,9 +1265,9 @@ export async function respondCertificationAction(targetId: number, accept: boole
 
   logAudit(me.id, accept ? "cert.accept" : "cert.decline", `@${target.username}`, "");
   revalidatePath("/messages");
-  revalidatePath(`/users/${me.username}`);
-  revalidatePath(`/users/${target.username}`);
-  redirect(`/users/${enc(target.username)}?ok=${accept ? "cert_accepted" : "cert_declined"}`);
+  revalidateUser(me.username);
+  revalidateUser(target.username);
+  backWith(dest, `/users/${enc(target.username)}`, "ok", accept ? "cert_accepted" : "cert_declined");
 }
 
 export async function setContentAction(formData: FormData) {

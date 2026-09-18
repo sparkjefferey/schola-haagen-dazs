@@ -1112,6 +1112,76 @@ footer .meander {
   background: linear-gradient(180deg, #f5e7c4, #e0c68a);
   box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
 }
+/* 学友申请：第三种来信（待应允的互证申请，红点挂到回应为止） */
+.conv-avatar.friend {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-size: 18px;
+  color: #f2f7f0;
+  background: linear-gradient(180deg, #4e8f60, #2f603c);
+  box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
+}
+/* 学友检索：讯息侧栏顶部的找人入口 */
+.user-search {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+.user-search input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+  background: var(--parch-0);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 7px 10px;
+}
+.user-search input:focus {
+  outline: 2px solid rgba(180, 147, 63, 0.5);
+  outline-offset: 1px;
+}
+.hit-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--line);
+  flex-wrap: wrap;
+}
+.hit-row:last-child {
+  border-bottom: none;
+}
+.hit-main {
+  flex: 1;
+  min-width: 190px;
+}
+.hit-act {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+/* 学号：名册编号，可径寄他人用于检索 */
+.uin {
+  font-family: var(--display);
+  font-size: 12px;
+  letter-spacing: 0.05em;
+  color: var(--gold-deep);
+  border: 1px solid rgba(180, 147, 63, 0.5);
+  background: rgba(180, 147, 63, 0.1);
+  border-radius: 3px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
 .notice-item {
   display: block;
   padding: 12px 14px 12px 15px;

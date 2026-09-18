@@ -67,7 +67,7 @@ export function getCertRelation(me: number, other: number): CertRelation {
   return "none";
 }
 
-/** 待我回应的互证请求（供消息页横幅）。 */
+/** 待我回应的互证请求（供讯息页「学友申请」栏）。 */
 export function listPendingCertRequests(me: number): (SafeUser & { created_at: string })[] {
   const rows = db
     .prepare(
@@ -78,6 +78,35 @@ export function listPendingCertRequests(me: number): (SafeUser & { created_at: s
     )
     .all(me) as any[];
   return rows.map((r) => ({ ...userMapper(r), created_at: r.created_at }));
+}
+
+/** 我已发出、待对方应允的互证申请（供「学友申请」栏交代进展）。 */
+export function listSentCertRequests(me: number): (SafeUser & { created_at: string })[] {
+  const rows = db
+    .prepare(
+      `SELECT u.*, c.created_at FROM certifications c
+       JOIN users u ON u.id = c.responder_id
+       WHERE c.requester_id=? AND c.status='pending' AND u.status='active'
+       ORDER BY c.created_at DESC`,
+    )
+    .all(me) as any[];
+  return rows.map((r) => ({ ...userMapper(r), created_at: r.created_at }));
+}
+
+/**
+ * 待我应允的互证申请条数 —— 讯息栏红点的来源。
+ * 刻意不看消息的 read 标记：申请要「回应了才算完」，读过系统通知不等于处理过，
+ * 否则红点会先于事情本身消失。回应（应允/婉拒）后该行不再 pending，红点自减。
+ */
+export function getPendingCertCount(me: number): number {
+  const row = db
+    .prepare(
+      `SELECT COUNT(*) AS c FROM certifications c
+       JOIN users u ON u.id = c.requester_id
+       WHERE c.responder_id=? AND c.status='pending' AND u.status='active'`,
+    )
+    .get(me) as { c: number };
+  return row.c;
 }
 
 /**
