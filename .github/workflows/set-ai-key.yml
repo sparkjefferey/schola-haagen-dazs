@@ -1,0 +1,77 @@
+name: Set AI key on server
+
+# 用途：把仓库 secret AI_API_KEY 写进服务器 /opt/schola-haagen-dazs/.env（学正·AI 点评用）。
+# 为什么单独一个工作流：ssh-probe.yml 只按 stdin 喂脚本、不带任何 secret；
+# 需要下发密钥的场景单独走这里，免得把密钥通道塞进日常体检/部署链路。
+#
+# 密钥传递方式：CI 侧从 secret 取到后，作为 **stdin 的第一行**（export 语句）与脚本一起喂给
+# 远程 bash -s —— 不出现在任何命令行（ps 看不到），GitHub 也会对 secret 值在日志中自动打码。
+#
+# 也用于日后轮换密钥：改完 secret 再跑一次即可（脚本会备份 .env 并只替换 AI_* 项）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      script:
+        description: "要执行的脚本（必须位于 scripts/ 目录）"
+        required: false
+        default: "scripts/set-ai-key.sh"
+        type: string
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+      DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+      DEPLOY_KEY: ${{ secrets.DEPLOY_KEY }}
+      AI_API_KEY: ${{ secrets.AI_API_KEY }}
+      SCRIPT: ${{ inputs.script }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 校验脚本路径白名单
+        run: |
+          set -eu
+          case "$SCRIPT" in
+            scripts/*.sh) ;;
+            *) echo "拒绝执行：只允许 scripts/ 目录下的 .sh 文件"; exit 1 ;;
+          esac
+          case "$SCRIPT" in
+            *..*|*/*/*) echo "拒绝执行：路径不允许跨目录"; exit 1 ;;
+          esac
+          test -f "$SCRIPT"
+          echo "将执行: $SCRIPT"
+
+      - name: 0) 前置检查（密钥与部署凭据齐备）
+        run: |
+          set -eu
+          missing=0
+          for v in DEPLOY_HOST DEPLOY_USER DEPLOY_KEY AI_API_KEY; do
+            if [ -z "$(eval "echo \$$v")" ]; then echo "缺少 secret: $v"; missing=1; fi
+          done
+          # 只报长度，不报内容
+          echo "AI_API_KEY 长度: ${#AI_API_KEY}"
+          exit $missing
+
+      - name: 1) 登录服务器并写入 .env
+        run: |
+          set -eu
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/probe_key
+          chmod 600 ~/.ssh/probe_key
+          set +e
+          # 第一行是 export（密钥在此，经加密通道传输，不进命令行），其后是脚本本体
+          { printf 'export AI_API_KEY=%s\n' "$(printf '%q' "${AI_API_KEY:-}")"; cat "$SCRIPT"; } | \
+            ssh -i ~/.ssh/probe_key \
+                -o StrictHostKeyChecking=accept-new \
+                -o UserKnownHostsFile=/tmp/known_hosts \
+                -o ConnectTimeout=20 \
+                -o BatchMode=yes \
+                -p 22 "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s'
+          rc=$?
+          set -e
+          echo
+          echo "ssh 退出码: $rc"
+          exit "$rc"
