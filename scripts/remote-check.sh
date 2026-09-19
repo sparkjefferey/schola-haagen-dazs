@@ -48,6 +48,21 @@ echo "线上版本:"
 cat /opt/schola-haagen-dazs/public/version.json 2>&1
 echo
 
+echo "--- 数据库迁移是否落地（只读，容器内查） ---"
+# 数据在 schola-data 卷里，宿主机没有 db 文件，故走容器内的 node + better-sqlite3。
+# 用途：部署后确认 initSchema 的迁移真的跑了（曾有过「代码上了、列没补」的先例）。
+docker compose exec -T schola node -e "
+const D = require('better-sqlite3');
+const db = new D('/app/data/schola.db', { readonly: true });
+const cols = (t) => db.prepare('PRAGMA table_info(' + t + ')').all().map((c) => c.name);
+const has = (t) => !!db.prepare('SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?').get('table', t);
+console.log('replies.kind   =', cols('replies').includes('kind') ? '有' : '缺');
+console.log('ai_calls 表    =', has('ai_calls') ? '有（' + db.prepare('SELECT COUNT(*) AS c FROM ai_calls').get().c + ' 行）' : '缺');
+console.log('certifications =', has('certifications') ? '有' : '缺');
+console.log('integrity      =', db.pragma('integrity_check')[0].integrity_check);
+" 2>&1 || echo "(容器内查询失败——容器可能没在跑)"
+echo
+
 echo "--- 入侵绊线自检 ---"
 for p in /opt/ops /opt/sync.sh; do
   [ -e "$p" ] && echo "!! 发现可疑路径: $p" || echo "OK 无 $p"
