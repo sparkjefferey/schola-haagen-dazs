@@ -77,6 +77,17 @@ export function peekFixedWindow(
   return { count: row.count, windowEnd: row.window_end };
 }
 
+/**
+ * 退还一次额度（计数减一，不为负）。
+ *
+ * 只给「答应给用户做的事最终没做成」的场景用——例如学正点评因上游故障失败，
+ * 不该白扣用户一次。**不退全站总桶**：全站桶是账单上限，退了就等于故障时
+ * 可以无限重试并无限花钱。
+ */
+export function refundFixedWindow(key: string) {
+  db.prepare("UPDATE rate_limit_windows SET count = MAX(0, count - 1) WHERE key = ?").run(key);
+}
+
 /** 只保存客户端标识的摘要，避免在限流表中长期保留原始 IP。 */
 export function rateLimitFingerprint(value: string): string {
   return createHash("sha256").update(value || "unknown").digest("hex").slice(0, 32);

@@ -23,6 +23,7 @@ import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
 import { notifyThreadReply } from "@/lib/notifications";
+import { aiConfigured, parseSummon, resolvePaper, consumeAiQuota } from "@/lib/ai";
 import { notifyWeakPassword } from "@/lib/email";
 import { passwordStrength } from "@/lib/password-strength";
 import { isMutuallyCertified, pmQuotaUsed, pmDailyLimit } from "@/lib/certification";
@@ -328,8 +329,61 @@ export async function replyAction(formData: FormData) {
     });
   }
 
+  // 召唤学正（AI）：回复里写 @学正，即请他点评所引论著、或就本帖作答；
+  // 同一帖再召唤一次就是追问——帖子本身就是上下文，不必另做聊天界面。
+  // 真正的模型调用不在这里做（一次要 20–40 秒，会顶到 Cloudflare 隧道上限），
+  // 只落一条 pending 的任务，由帖子页的客户端小件触发 /api/ai/run 领取执行。
+  const summon = parseSummon(content);
+  if (summon.asked) {
+    // 召唤文本里点名了论著：找不到、或是他人未刊之稿，当场回话（不占额度、不落任务）
+    const named = resolvePaper(user.id, summon.question);
+    if (named && !named.ok) redirect(`/forum/thread/${threadId}?e=${named.code}`);
+    const paperId = named?.ok ? named.paper.id : paperHintFromThread(threadId, user.id);
+    if (!summon.question && !paperId) redirect(`/forum/thread/${threadId}?e=ai_ask`);
+
+    const quota = consumeAiQuota(user);
+    if (!quota.ok) {
+      logAudit(
+        user.id,
+        "security.ai_blocked",
+        `thread#${threadId}`,
+        quota.code === "ai_global" ? "全站额度已尽" : "个人额度已尽",
+      );
+      redirect(`/forum/thread/${threadId}?e=${quota.code}`);
+    }
+    // 记下是哪条回复召唤的（留痕）：审计里只写编号与长度，不抄用户原文
+    const sourceReplyId = Number(info.lastInsertRowid);
+    db.prepare(
+      `INSERT INTO ai_calls (thread_id, source_reply_id, requester_id, paper_id, question)
+       VALUES (?, ?, ?, ?, ?)`,
+    ).run(threadId, sourceReplyId, user.id, paperId, summon.question.slice(0, 2000));
+    logAudit(
+      user.id,
+      "ai.summon",
+      `thread#${threadId}`,
+      `应 reply#${sourceReplyId} 之请 · ${paperId ? `论著#${paperId}` : "无引文"} · 问题 ${summon.question.length} 字`,
+    );
+  }
+
   revalidatePath(`/forum/thread/${threadId}`);
   redirect(`/forum/thread/${threadId}`);
+}
+
+/**
+ * 从召唤文本之外找论著引用（主帖与最近三条回复）。
+ * 这一路**只当作线索**：找不到、或是别人未刊的稿子，都算「没有引用」而不是出错——
+ * 免得帖子里恰好挂过一篇未刊稿，就把后来人一句不相干的讲解请求也一并挡掉。
+ */
+function paperHintFromThread(threadId: number, requesterId: number): number | null {
+  const t = db.prepare("SELECT title, content FROM threads WHERE id = ?").get(threadId) as
+    | { title: string; content: string }
+    | undefined;
+  if (!t) return null;
+  const recent = db
+    .prepare("SELECT content FROM replies WHERE thread_id = ? ORDER BY id DESC LIMIT 3")
+    .all(threadId) as { content: string }[];
+  const resolved = resolvePaper(requesterId, [t.title, t.content, ...recent.map((r) => r.content)].join("\n"));
+  return resolved?.ok ? resolved.paper.id : null;
 }
 
 export async function deleteThreadAction(threadId: number) {
@@ -357,6 +411,33 @@ export async function deleteReplyAction(replyId: number) {
   db.prepare("DELETE FROM replies WHERE id = ?").run(replyId);
   logAudit(user.id, "reply.delete", `reply#${replyId}`, "删除辩答");
   revalidatePath(`/forum/thread/${row.thread_id}`);
+}
+
+/**
+ * 重试一次失败的学正点评。
+ * 只把任务打回 pending，真正的模型调用仍由帖子页的小件去领 —— 表单动作里不做慢活。
+ * 重试算一次新的额度（失败时已退过一次），额度不够就照实回话。
+ */
+export async function retryAiCallAction(callId: number) {
+  const user = await requireLogin();
+  if (!Number.isInteger(callId) || callId <= 0) fail("任务编号无效");
+  const call = db.prepare("SELECT id, thread_id, requester_id, status FROM ai_calls WHERE id = ?").get(callId) as
+    | { id: number; thread_id: number; requester_id: number; status: string }
+    | undefined;
+  if (!call) fail("任务不存在");
+  if (user.role !== "admin" && user.id !== call.requester_id) fail("无权重试");
+  // 只有失败态可重试：还在跑的、已完成的，点了也只是回原地
+  if (call.status !== "failed") redirect(`/forum/thread/${call.thread_id}`);
+
+  const quota = consumeAiQuota(user);
+  if (!quota.ok) {
+    logAudit(user.id, "security.ai_blocked", `call#${callId}`, quota.code === "ai_global" ? "全站额度已尽" : "个人额度已尽");
+    redirect(`/forum/thread/${call.thread_id}?e=${quota.code}`);
+  }
+  db.prepare("UPDATE ai_calls SET status='pending', error='', updated_at=datetime('now') WHERE id=?").run(callId);
+  logAudit(user.id, "ai.retry", `call#${callId}`, "");
+  revalidatePath(`/forum/thread/${call.thread_id}`);
+  redirect(`/forum/thread/${call.thread_id}`);
 }
 
 // ==================== 论文 / 掌门认证（专业期刊流水线） ====================

@@ -33,6 +33,17 @@ services:
       - SMTP_USER=${SMTP_USER:-}
       - SMTP_PASS=${SMTP_PASS:-}
       - SMTP_FROM=${SMTP_FROM:-}
+      # 学正（AI 点评，可选）：填了 AI_API_KEY 才在论坛启用「@学正」召唤；留空则整块功能隐藏，不报错。
+      # 默认接 DeepSeek 的 OpenAI 兼容接口（取 key：https://platform.deepseek.com → API keys）；
+      # 换国内别家或自建网关，只改 AI_BASE_URL 与 AI_MODEL 即可（任何 OpenAI 兼容端点皆可）。
+      # AI_DAILY_GLOBAL 是防刷爆账单的硬闸：全站每日调用总次数，超了自动停。
+      - AI_API_KEY=${AI_API_KEY:-}
+      - AI_BASE_URL=${AI_BASE_URL:-https://api.deepseek.com}
+      - AI_MODEL=${AI_MODEL:-deepseek-flash}
+      - AI_DAILY_PER_USER=${AI_DAILY_PER_USER:-3}
+      - AI_DAILY_GLOBAL=${AI_DAILY_GLOBAL:-50}
+      - AI_MAX_INPUT_CHARS=${AI_MAX_INPUT_CHARS:-12000}
+      - AI_TIMEOUT_MS=${AI_TIMEOUT_MS:-60000}
     volumes:
       - schola-data:/app/data   # 数据库持久化：容器重建/更新，论文与账号数据不丢
 

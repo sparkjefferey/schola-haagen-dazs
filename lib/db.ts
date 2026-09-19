@@ -136,6 +136,8 @@ export interface Reply {
   thread_id: number;
   author_id: number;
   content: string;
+  /** 'human' = 人写的；'ai' = 学正应请出者之请给出的点评（author_id 记请出者）。 */
+  kind: "human" | "ai";
   created_at: string;
 }
 
@@ -270,8 +272,39 @@ export function initSchema() {
       thread_id  INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
       author_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       content    TEXT NOT NULL,
+      -- 'human' 为人写的回复；'ai' 为学正（AI）应某人之请给出的点评。
+      -- AI 回复的 author_id 记「请出者」（发起召唤的真人），故仍指向真实用户行，
+      -- getThread 的 INNER JOIN 天然成立，也不必为用户表添一个合成账号。
+      kind       TEXT NOT NULL DEFAULT 'human' CHECK (kind IN ('human','ai')),
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+    CREATE INDEX IF NOT EXISTS idx_replies_thread ON replies(thread_id, created_at);
+
+    -- 学正（AI）点评任务：召唤时先落一条 pending，由客户端小件触发 /api/ai/run 领取执行，
+    -- 跑完再写一条 kind='ai' 的回复并把结果回填到本表（answer/用量）。
+    -- 异步而非同步：一次点评要 20–40 秒，而 Cloudflare 隧道对长请求约 100 秒上限。
+    CREATE TABLE IF NOT EXISTS ai_calls (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      thread_id     INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      -- reply_id = 学正写出的那条回复（跑完回填）；source_reply_id = 召唤它的那条人类回复（留痕用）
+      reply_id      INTEGER REFERENCES replies(id) ON DELETE SET NULL,
+      source_reply_id INTEGER REFERENCES replies(id) ON DELETE SET NULL,
+      requester_id  INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      paper_id      INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+      question      TEXT NOT NULL DEFAULT '',
+      -- failed = 可重试（上游故障/超时）；refused = 不可重试（未刊之稿不外送之类，
+      -- 点一百次也一样）。两者分开，界面才不会给用户一个永远点不成的「再请一次」。
+      status        TEXT NOT NULL DEFAULT 'pending'
+                      CHECK (status IN ('pending','running','done','failed','refused')),
+      answer        TEXT NOT NULL DEFAULT '',
+      error         TEXT NOT NULL DEFAULT '',
+      model         TEXT NOT NULL DEFAULT '',
+      prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+      completion_tokens INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_ai_calls_thread ON ai_calls(thread_id, status, created_at);
 
     CREATE TABLE IF NOT EXISTS invites (
       id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -442,6 +475,8 @@ export function initSchema() {
   addCol("users", "email", "email TEXT NOT NULL DEFAULT ''");
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
+  // 学正（AI）回复标记：老库的 replies 无此列（seed.mjs 亦以旧形 DDL 建表），缺则补
+  addCol("replies", "kind", "kind TEXT NOT NULL DEFAULT 'human'");
 
   // ---- 迁移：用户名不区分大小写唯一 ----
   // 原 UNIQUE 约束区分大小写（"Rector" 与 "rector" 可并存），有人可借大小写变体取

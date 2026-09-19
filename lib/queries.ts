@@ -121,7 +121,24 @@ export function listThreads(opts: { category?: string } = {}): (Thread & { autho
     }));
 }
 
-export function getThread(id: number): (Thread & { author: SafeUser; replies: (Reply & { author: SafeUser })[] }) | null {
+export interface AiCallRow {
+  id: number;
+  requester_id: number;
+  requester_name: string;
+  question: string;
+  /** failed = 可重试（上游故障）；refused = 不可重试（未刊之稿不外送之类）。 */
+  status: "pending" | "running" | "failed" | "refused";
+  error: string;
+  created_at: string;
+}
+
+export function getThread(
+  id: number,
+): (Thread & {
+  author: SafeUser;
+  replies: (Reply & { author: SafeUser })[];
+  aiCalls: AiCallRow[];
+}) | null {
   const t = db.prepare("SELECT * FROM threads WHERE id = ?").get(id) as any;
   if (!t) return null;
   const author = db.prepare("SELECT * FROM users WHERE id = ?").get(t.author_id) as any;
@@ -132,6 +149,18 @@ export function getThread(id: number): (Thread & { author: SafeUser; replies: (R
        WHERE r.thread_id = ? ORDER BY r.created_at ASC, r.id ASC`,
     )
     .all(id);
+  // 未完成的召唤（最近三条、一小时内的）：供帖子页渲染「正在思索」/失败可重试的气泡。
+  // 只取未完成的——已完成的早已另写一条 kind='ai' 的回复；失败态留一小时是为了让请出者
+  // 能看见失败并重试，过了就自然消失，不把帖子页面堆满陈年旧账。
+  const aiCalls = db
+    .prepare(
+      `SELECT c.id, c.requester_id, c.question, c.status, c.error, c.created_at, u.display_name AS requester_name
+       FROM ai_calls c JOIN users u ON u.id = c.requester_id
+       WHERE c.thread_id = ? AND c.status <> 'done' AND c.created_at > datetime('now','-1 hour')
+       ORDER BY c.id DESC LIMIT 3`,
+    )
+    .all(id)
+    .reverse() as AiCallRow[];
   return {
     id: t.id,
     author_id: t.author_id,
@@ -145,10 +174,21 @@ export function getThread(id: number): (Thread & { author: SafeUser; replies: (R
       thread_id: r.thread_id,
       author_id: r.author_id,
       content: r.content,
+      kind: r.kind === "ai" ? "ai" : "human",
       created_at: r.created_at,
       author: toAuthor(r),
     })),
+    aiCalls,
   };
+}
+
+/** 按稿号查论文（现行 SCHOLA-YYYY-NNNN 与老稿 MS-YYYY-NNNN）；供学正点评时解析引用。
+ *  刻意不加索引：稿号查询用 upper() 比较，加了索引用不上；本表只有几百行，全扫足够。 */
+export function getPaperByCode(code: string): { id: number } | null {
+  const row = db
+    .prepare("SELECT id FROM papers WHERE upper(manuscript_code) = ?")
+    .get(String(code ?? "").trim().toUpperCase()) as { id: number } | undefined;
+  return row ?? null;
 }
 
 export function getPaper(id: number): (Paper & { author: SafeUser; authors: PaperAuthor[] }) | null {

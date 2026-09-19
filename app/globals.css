@@ -1230,6 +1230,36 @@ footer .meander {
 .reply-card {
   scroll-margin-top: 92px;
 }
+/* 学正（AI）的点评：与真人回复一眼可分 —— 左侧一道金线、纸色略沉，
+   头像是不带用户身份的静态「正」字，徽记写明 AI 生成。 */
+.ai-reply {
+  border-left: 3px solid var(--gold-deep);
+  background: linear-gradient(180deg, rgba(180, 147, 63, 0.07), rgba(180, 147, 63, 0) 55%), var(--parch-card);
+}
+.ai-avatar {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--maroon-deep);
+  color: var(--gold-soft);
+  border: 1px solid var(--gold-deep);
+  font-family: var(--display);
+  font-size: 17px;
+  line-height: 1;
+}
+.badge-ai {
+  border-color: var(--maroon);
+  color: var(--maroon-deep);
+  background: rgba(109, 47, 43, 0.08);
+}
+.ai-thinking {
+  font-style: italic;
+  color: var(--ink-soft);
+}
 .reply-card:target {
   border-color: var(--gold);
   box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.4);

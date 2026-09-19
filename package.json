@@ -14,6 +14,7 @@
     "e2e:register": "node scripts/e2e-register.mjs",
     "e2e:papers": "node scripts/e2e-papers.mjs",
     "e2e:find-friend": "node scripts/e2e-find-friend.mjs",
+    "e2e:ai": "node scripts/e2e-ai.mjs",
     "public": "cloudflared tunnel --url http://localhost:3000"
   },
   "dependencies": {
