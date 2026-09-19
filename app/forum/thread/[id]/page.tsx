@@ -196,8 +196,8 @@ export default async function ThreadPage({
           </form>
           {canSummon && (
             <p className="meta ai-hint" style={{ marginTop: 10, fontSize: 12.5 }}>
-              在回复里写 <b>@{AI_NAME}</b> 即可请 AI 点评所引论著、或就本帖讲解（如「@{AI_NAME} 点评
-              SCHOLA-2026-0004」）；同一帖再召唤一次便是追问。召唤时本帖内容与所引论著的正文会发给模型服务。
+              在回复里写 <b>@{AI_NAME}</b> 即可请 AI 点评所引论著、就本帖讲解，或问站内学务（如「@{AI_NAME} 点评
+              SCHOLA-2026-0004」「@{AI_NAME} 怎么投稿」）；同一帖再召唤一次便是追问。召唤时本帖内容与所引论著的正文会发给模型服务。
               {remaining === null
                 ? ""
                 : remaining > 0
