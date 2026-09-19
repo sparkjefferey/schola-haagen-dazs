@@ -7,9 +7,9 @@ type CertUser = { id: number; username: string; display_name: string };
 
 /**
  * 讯息页「学友申请」栏。
- * 收到的申请可就地应允/婉拒（以前非跑一趟对方名册页不可）；发出的申请在此交代进展。
- * 本栏是互证申请的唯一归处——申请不再另发一条系统消息，免得同一件事两处出现、
- * 红点还要算两遍。
+ * 收到的申请可就地应允/婉拒（以前非跑一趟对方名册页不可）；发出的申请在此交代进展；
+ * 栏首给出「想与谁结为学友？」的检索下手处——本栏既是申请的归处，也该是发起处。
+ * 申请不再另发一条系统消息，免得同一件事两处出现、红点还要算两遍。
  */
 export function CertPanel({
   received,
@@ -26,6 +26,28 @@ export function CertPanel({
       <h2 className="section-title" style={{ fontSize: 20, marginTop: 4 }}>
         学 友 申 请
       </h2>
+
+      {/* 下手处。本栏从前只有「待你应允」「你已发出」两张卡片：想结学友的人点进来
+          无从下手，只能自己猜到要去检索框里找人——申请按钮也就显得不存在。 */}
+      <div className="card" style={{ padding: "12px 18px 16px", marginBottom: 20 }}>
+        <h3 style={{ fontSize: 15 }}>想与谁结为学友？</h3>
+        <p className="meta" style={{ marginTop: 2, fontSize: 13 }}>
+          按学号（<b>#7</b>）或雅名找到人，在其一行上发出申请；对方应允后即互为学友，可无限私信。
+        </p>
+        <form method="get" action="/messages" className="user-search" style={{ marginTop: 12, marginBottom: 0 }}>
+          <input
+            name="find"
+            type="search"
+            autoComplete="off"
+            maxLength={24}
+            placeholder="学号 #7 · 雅名 · 用户名"
+            aria-label="检索同窗"
+          />
+          <button className="btn btn-sm btn-gold" type="submit">
+            检 索
+          </button>
+        </form>
+      </div>
 
       <div className="card" style={{ padding: "10px 18px 16px", marginBottom: 20 }}>
         <h3 style={{ fontSize: 15 }}>待你应允 · {received.length}</h3>

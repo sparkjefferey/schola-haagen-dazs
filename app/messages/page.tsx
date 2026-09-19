@@ -39,17 +39,19 @@ export default async function MessagesPage({
   // 会落回某个会话，得重搜一遍）。限流与「只搜在籍者」都在 searchUsers 内处理。
   const search: UserSearchResult | null = findQuery ? searchUsers(me.id, findQuery) : null;
 
-  // 名单门禁：管理员可见全员；其余只见与自己互证的同侪（不直接展示所有人 ID）
+  // 名单门禁：管理员另见一份全员名录（查人用的便册，与学友名录分开标名）；其余只见自己的学友
   const isAdmin = me.role === "admin";
-  const activeUsers = isAdmin
+  const contacts = listContacts(me.id);
+  const roster = isAdmin
     ? (db
         .prepare(
           "SELECT id, username, display_name, role, endorsed FROM users WHERE status='active' AND id <> ? ORDER BY display_name",
         )
         .all(me.id) as any[])
-    : listContacts(me.id);
-  const pendingCerts = isAdmin ? [] : listPendingCertRequests(me.id);
-  const sentCerts = isAdmin ? [] : listSentCertRequests(me.id);
+    : [];
+  // 管理者同样收发学友申请（从前被排除在外：馆长账号上这栏恒空、申请按钮一处也见不着）
+  const pendingCerts = listPendingCertRequests(me.id);
+  const sentCerts = listSentCertRequests(me.id);
   // 角标不做「看过即清零」：申请要回应了才算完，看过一眼仍挂着——
   // 与顶部铃铛（getUnreadCount 同样计入待应允申请）口径一致，两处不会各说各话。
   const pendingCertCount = pendingCerts.length;
@@ -152,27 +154,25 @@ export default async function MessagesPage({
           {noticeUnread > 0 && <span className="msg-badge">{noticeUnread}</span>}
         </Link>
 
-        {(!isAdmin || pendingCertCount > 0) && (
-          <Link
-            href="/messages?with=certs"
-            className={`conv-item ${isCerts ? "conv-active" : ""}`}
-          >
-            <div className="conv-avatar friend">友</div>
-            <div className="conv-meta">
-              <div className="conv-name">学友申请</div>
-              <div className="conv-last">
-                {pendingCertCount > 0 ? "有申请待你应允" : "同侪互证 · 应允后可无限私信"}
-              </div>
+        <Link
+          href="/messages?with=certs"
+          className={`conv-item ${isCerts ? "conv-active" : ""}`}
+        >
+          <div className="conv-avatar friend">友</div>
+          <div className="conv-meta">
+            <div className="conv-name">学友申请</div>
+            <div className="conv-last">
+              {pendingCertCount > 0 ? "有申请待你应允" : "找同窗申请 · 应允后可无限私信"}
             </div>
-            {pendingCertCount > 0 && <span className="msg-badge">{pendingCertCount}</span>}
-          </Link>
-        )}
+          </div>
+          {pendingCertCount > 0 && <span className="msg-badge">{pendingCertCount}</span>}
+        </Link>
 
         <div style={{ height: 1, background: "var(--line)", margin: "10px 0" }} />
 
         {conversations.length === 0 && (
           <p className="empty-note" style={{ padding: "12px 6px", fontSize: 13 }}>
-            尚无私聊。用上方检索找人发起学友申请，或赴他人名册页请求互证。
+            尚无私聊。用上方检索找人发出学友申请，或赴他人名册页申请；应允后即可畅谈。
           </p>
         )}
         {conversations.map((c) => {
@@ -201,20 +201,35 @@ export default async function MessagesPage({
         })}
 
         <details className="new-pm" style={{ marginTop: 14 }}>
-          <summary>＋ 学友名录（{activeUsers.length}）</summary>
+          <summary>＋ 学友名录（{contacts.length}）</summary>
           <div className="pm-userlist">
-            {activeUsers.map((u) => (
+            {contacts.map((u) => (
               <Link key={u.id} href={`/messages?with=${u.id}`} className="pm-user">
                 {u.display_name}
               </Link>
             ))}
-            {activeUsers.length === 0 && !isAdmin && (
+            {contacts.length === 0 && (
               <p className="empty-note" style={{ padding: "8px 4px", fontSize: 12 }}>
-                尚无互证同侪。用上方检索找人发起申请，应允后即可在此无限私信。
+                尚无学友。赴「学友申请」栏或他人名册页发出申请，应允后即列于此。
               </p>
             )}
           </div>
         </details>
+
+        {/* 管理者查人用的便册。从前它顶着「学友名录」的名字列全员——名字与内容对不上，
+            看着就像「谁都是我的学友、根本不用申请」。分开标名，各是各的。 */}
+        {isAdmin && (
+          <details className="new-pm" style={{ marginTop: 10 }}>
+            <summary>＋ 全员名录（{roster.length} · 管理者）</summary>
+            <div className="pm-userlist">
+              {roster.map((u) => (
+                <Link key={u.id} href={`/messages?with=${u.id}`} className="pm-user">
+                  {u.display_name}
+                </Link>
+              ))}
+            </div>
+          </details>
+        )}
       </aside>
 
       <section className="msg-main">
@@ -223,22 +238,21 @@ export default async function MessagesPage({
         {sp.e === "nouser" && <div className="msg-note err">该用户不存在或已离馆。</div>}
         {sp.e === "limit" && (
           <div className="msg-note err">
-            今日未互证私信已达限额（{pmDailyLimit()} 条）。赴对方名册页完成同侪互证后可无限畅谈。
+            今日未互证私信已达限额（{pmDailyLimit()} 条）。赴对方名册页申请学友，应允后可无限畅谈。
           </div>
         )}
         {sp.e === "admin_gate" && (
           <div className="msg-note err">
-            为保护管理者收件箱，未获认证或互证的账号不能主动私信管理者。管理者先联系你后可直接回复。
+            为保护管理者收件箱，未获认证或未结为学友的账号不能主动私信管理者。管理者先联系你后可直接回复。
           </div>
         )}
         {sp.e === "admin_limit" && (
           <div className="msg-note err">你向该管理者发送私信的个人额度已满，请稍后再试。</div>
         )}
-        {sp.e === "cert_rate" && <div className="msg-note err">互证申请过于频繁，请稍后再试。</div>}
-        {sp.e === "cert_none" && <div className="msg-note err">没有待你回应的互证申请（可能已被处理）。</div>}
+        {sp.e === "cert_rate" && <div className="msg-note err">学友申请过于频繁，请稍后再试。</div>}
+        {sp.e === "cert_none" && <div className="msg-note err">没有待你回应的学友申请（可能已被处理）。</div>}
         {sp.e === "cert_nouser" && <div className="msg-note err">该用户不存在或已离馆。</div>}
-        {sp.e === "cert_admin" && <div className="msg-note err">管理者无需同侪互证。</div>}
-        {sp.e === "cert_self" && <div className="msg-note err">不能与自己互证。</div>}
+        {sp.e === "cert_self" && <div className="msg-note err">不能与自己结为学友。</div>}
         {sp.sent === "1" && <div className="msg-note ok">已送达。</div>}
         {sp.ok === "cert_sent" && <div className="msg-note ok">已发出学友申请，待对方应允。</div>}
         {sp.ok === "cert_mutual" && (

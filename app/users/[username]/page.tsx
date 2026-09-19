@@ -77,11 +77,13 @@ export default async function UserPage({
   const totalViews = published.reduce((s, p) => s + p.views, 0);
   const score = published.length * 20 + totalViews;
 
-  // 同侪互证关系（仅双方均活跃且非管理者时展示）
+  // 同侪互证关系（双方均活跃即展示；管理者亦在关系之内，理由见 lib/actions.ts）
   const certRel =
-    !isSelf && me?.status === "active" && user.status === "active" && me.role !== "admin" && user.role !== "admin"
+    !isSelf && me?.status === "active" && user.status === "active"
       ? getCertRelation(me.id, user.id)
       : null;
+  // 金色同一处只给一个：有「申请/应允」可做时金色归它，没有时才归私信
+  const pmIsPrimary = certRel === "certified" || certRel === "pending_sent";
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto" }}>
@@ -294,57 +296,62 @@ export default async function UserPage({
             </p>
           </form>
         )}
-        {!isSelf && me && me.status === "active" && user.status === "active" && (
-          <p className="meta" style={{ marginTop: 14 }}>
-            <Link href={`/messages?with=${user.id}`} className="btn btn-sm btn-gold">
-              私 信
-            </Link>
-          </p>
-        )}
-
         {certRel && (
           // 必须是 div：块级 <form> 不能放进 <p>（浏览器解析时会提前闭合 <p>，
           // 服务端 DOM 与客户端虚拟树对不上 → React 水合报错 #418，该子树被整棵重建）。
-          // margin 显式写全，补上原先 <p> 默认的上下外边距。
-          <div className="meta" style={{ margin: "12px 0 16px" }}>
+          // 私信与学友申请并作一处：从前私信单独一行、金色、在上，申请是下方一枚
+          // 素色小按钮，看着就像「不申请也能聊」——申请才是主要动作，故调到前面。
+          <div
+            className="meta"
+            style={{
+              margin: "14px 0 16px",
+              display: "flex",
+              gap: 8,
+              justifyContent: "center",
+              alignItems: "center",
+              flexWrap: "wrap",
+            }}
+          >
             {certRel === "none" && (
               <form action={requestCertificationAction.bind(null, user.id)} style={{ display: "inline" }}>
-                <button className="btn btn-sm" type="submit">请 求 同 侪 互 证</button>
+                <button className="btn btn-sm btn-gold" type="submit">申请学友私聊</button>
               </form>
             )}
             {certRel === "pending_sent" && (
-              <span className="badge badge-dim">已请求互证，待对方应允</span>
+              <span className="badge badge-dim">已申请学友，待对方应允</span>
             )}
             {certRel === "pending_received" && (
               <>
-                <span className="badge" style={{ marginRight: 8 }}>对方请求与你互证</span>
+                <span className="badge">对方申请与你结为学友</span>
                 <form action={respondCertificationAction.bind(null, user.id, true)} style={{ display: "inline" }}>
                   <button className="btn btn-sm btn-gold" type="submit">应 允</button>
-                </form>{" "}
+                </form>
                 <form action={respondCertificationAction.bind(null, user.id, false)} style={{ display: "inline" }}>
                   <button className="btn btn-sm" type="submit">婉 拒</button>
                 </form>
               </>
             )}
-            {certRel === "certified" && <span className="badge">同侪互证 · 可无限私信</span>}
+            {certRel === "certified" && <span className="badge">学友 · 可无限私信</span>}
             {certRel === "declined" && (
               <>
-                <span className="badge badge-dim" style={{ marginRight: 8 }}>对方曾婉拒</span>
+                <span className="badge badge-dim">对方曾婉拒</span>
                 <form action={requestCertificationAction.bind(null, user.id)} style={{ display: "inline" }}>
-                  <button className="btn btn-sm" type="submit">再 次 请 求</button>
+                  <button className="btn btn-sm btn-gold" type="submit">再 次 申 请</button>
                 </form>
               </>
             )}
+            <Link href={`/messages?with=${user.id}`} className={`btn btn-sm${pmIsPrimary ? " btn-gold" : ""}`}>
+              私 信
+            </Link>
           </div>
         )}
 
-        {sp?.ok === "cert_sent" && <p className="meta" style={{ color: "var(--gold-deep)" }}>已发出互证请求，待对方应允。</p>}
-        {sp?.ok === "cert_mutual" && <p className="meta" style={{ color: "var(--gold-deep)" }}>对方已先发起互证，你们已互相应允，可无限私信。</p>}
-        {sp?.ok === "cert_accepted" && <p className="meta" style={{ color: "var(--gold-deep)" }}>已应允互证，你们现可无限私信。</p>}
-        {sp?.ok === "cert_declined" && <p className="meta">已婉拒互证请求。</p>}
-        {sp?.e === "cert_rate" && <p className="meta" style={{ color: "var(--maroon)" }}>互证请求过于频繁，请稍后再试。</p>}
-        {sp?.e === "cert_admin" && <p className="meta" style={{ color: "var(--maroon)" }}>管理者无需同侪互证。</p>}
-        {sp?.e === "cert_self" && <p className="meta" style={{ color: "var(--maroon)" }}>不能与自己互证。</p>}
+        {sp?.ok === "cert_sent" && <p className="meta" style={{ color: "var(--gold-deep)" }}>已发出学友申请，待对方应允。</p>}
+        {sp?.ok === "cert_mutual" && <p className="meta" style={{ color: "var(--gold-deep)" }}>对方已先发起申请，你们已互为学友，可无限私信。</p>}
+        {sp?.ok === "cert_accepted" && <p className="meta" style={{ color: "var(--gold-deep)" }}>已应允，你们现为学友，可无限私信。</p>}
+        {sp?.ok === "cert_declined" && <p className="meta">已婉拒该申请。</p>}
+        {sp?.e === "cert_rate" && <p className="meta" style={{ color: "var(--maroon)" }}>学友申请过于频繁，请稍后再试。</p>}
+        {sp?.e === "cert_self" && <p className="meta" style={{ color: "var(--maroon)" }}>不能与自己结为学友。</p>}
         {sp?.e === "cert_nouser" && <p className="meta" style={{ color: "var(--maroon)" }}>该用户不存在或已离馆。</p>}
         {sp?.e === "cert_none" && <p className="meta" style={{ color: "var(--maroon)" }}>没有待你回应的互证请求。</p>}
       </div>

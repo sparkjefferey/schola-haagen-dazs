@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect } from "react";
 import Link from "next/link";
 import { Avatar } from "@/components/avatar";
+import { imeOwnsKey, compositionJustEnded } from "@/components/ime-enter-guard";
 import { timeAgo } from "@/lib/format";
 import { sendMessageInline } from "@/lib/actions";
 
@@ -105,10 +106,17 @@ export function ChatPanel({
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // 组字中的 Enter 归输入法，原样放过
+    if (imeOwnsKey(e)) return;
+    // 上屏的那一下 Enter（Safari 先 compositionend 后 keydown，isComposing 已是 false）：
+    // 既不发送，也不让它落成换行 —— 从前正是这里把半截话发了出去
+    if (compositionJustEnded()) {
       e.preventDefault();
-      handleSend();
+      return;
     }
+    e.preventDefault();
+    handleSend();
   }
 
   return (
@@ -142,9 +150,9 @@ export function ChatPanel({
       </div>
       {!unlimited && (
         <p className="meta" style={{ padding: "6px 12px", fontSize: 12, textAlign: "center" }}>
-          今日剩余未互证私信 <b>{quota}</b> 条。与 {other.display_name} 完成
+          今日剩余未互证私信 <b>{quota}</b> 条。与 {other.display_name}
           <Link href={`/users/${other.username}`} style={{ color: "var(--maroon-deep)" }}>
-            同侪互证
+            结为学友
           </Link>
           后可无限畅谈。
         </p>

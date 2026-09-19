@@ -10,6 +10,7 @@ import { MeanderBand } from "@/components/emblem";
 import { GreekKey, IonicColumn, Amphora, LaurelWreath } from "@/components/decor";
 import { logoutAction } from "@/lib/actions";
 import { MessageBell } from "@/components/message-bell";
+import { ImeEnterGuard } from "@/components/ime-enter-guard";
 import Link from "next/link";
 
 export const metadata: Metadata = {
@@ -53,6 +54,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       </head>
       <body data-theme={theme}>
         <div className="greek-arch-bg" aria-hidden />
+        {/* 输入法上屏的那一下 Enter 不该触发发送/提交（见组件内注释） */}
+        <ImeEnterGuard />
         <header>
           <div className="sitename-band">
             <MeanderBand />

@@ -8,6 +8,8 @@ import { USER_SEARCH_LIMIT, type UserHit } from "@/lib/user-search";
  * 学友检索结果。
  * 每一行的按钮随「我与该同窗的关系」而变：未互证给申请，待我应允给应允/婉拒，
  * 已是学友直接进私聊——不必先绕去对方名册页。
+ * 管理者与常人同一套判断（从前管理员只给「私信」，馆长账号上便一处申请按钮
+ * 都见不着）；另给管理者一个直达私信的便门，免得多点两下。
  */
 export function UserSearchResults({
   query,
@@ -65,14 +67,15 @@ export function UserSearchResults({
             </div>
 
             <div className="hit-act">
+              {/* 管理者的便门：行内动作已是私信（certified）时不必重复 */}
+              {isAdmin && !u.isSelf && u.relation !== "certified" && (
+                <Link className="btn btn-sm" href={`/messages?with=${u.id}`}>
+                  私 信
+                </Link>
+              )}
               {u.isSelf ? (
                 <Link className="btn btn-sm" href={`/users/${encodeURIComponent(u.username)}`}>
                   赴 名 册
-                </Link>
-              ) : isAdmin || u.role === "admin" ? (
-                // 管理者不参与互证，直接给私信入口
-                <Link className="btn btn-sm btn-gold" href={`/messages?with=${u.id}`}>
-                  私 信
                 </Link>
               ) : u.relation === "certified" ? (
                 <Link className="btn btn-sm btn-gold" href={`/messages?with=${u.id}`}>

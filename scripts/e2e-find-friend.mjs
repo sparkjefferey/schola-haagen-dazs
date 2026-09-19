@@ -7,7 +7,10 @@
  *   3. 申请后回跳检索结果（不被甩到对方名册页），结果行转为「待对方应允」；
  *   4. 申请计入对方讯息红点（且不重复计数——申请不再另发系统消息）；
  *   5. 「学友申请」栏可就地应允，应允后双方转「进入私聊」，且不再受每日条数之限；
- *   6. 检索限流（每账号 10 分钟 30 次）到点即拦。
+ *   6. 检索限流（每账号 10 分钟 30 次）到点即拦；
+ *   7. 「学友申请」栏自身有下手处（栏内检索即可找人申请）；管理者同样有申请入口，
+ *      查人便册与学友名录分开标名；
+ *   8. 聊天框里输入法上屏的那一下 Enter 不会把半截话发出去，正常 Enter 照常发送。
  *
  * 用法（先起本地站点于 3100，见 README「端到端测试」）：
  *   node scripts/e2e-find-friend.mjs           # 跑全套（自动造号、跑完自清）
@@ -196,11 +199,15 @@ ok(page.url().includes("/messages?find="), "办完仍留在检索结果（未被
 ok((await hitRowText("检索乙")).includes("已申请"), "该行转为「已申请 · 待对方应允」");
 ok(await waitBell(0), "申请人自己不加红点（申请不再另发系统消息）");
 
-console.log("\n[5b] 老路径仍在：名册页发起互证（不带 back 字段，目标为中文名账号）");
+console.log("\n[5b] 老路径仍在：名册页发起学友申请（不带 back 字段，目标为中文名账号）");
 await logout();
 await login(C_USER);
 await page.goto(BASE + "/users/" + encodeURIComponent(A_USER), { waitUntil: "networkidle" });
-await clickAndSettle(page.locator('button:has-text("请 求 同 侪 互 证")'), /ok=cert_sent/);
+ok(
+  (await page.locator('.card a.btn:has-text("私 信")').count()) === 1,
+  "名册页私信与申请并列一处（从前私信独占一行，申请是下方一枚素色小按钮）",
+);
+await clickAndSettle(page.locator('button:has-text("申请学友私聊")'), /ok=cert_sent/);
 ok(decodeURIComponent(page.url()).endsWith(`/users/${A_USER}?ok=cert_sent`), "办完回到对方名册页: " + decodeURIComponent(page.url()));
 
 console.log("\n[6] 乙方：讯息栏红点由申请点亮，可栏内应允");
@@ -218,6 +225,15 @@ await clickAndSettle(page.locator('button:has-text("应 允")').first(), /ok=cer
 ok((await page.locator('.card:has-text("待你应允")').innerText()).includes("暂无"), "应允后待应允列表清空");
 ok(await waitBell(0), "回应后红点归零");
 
+console.log("\n[6b] 「学友申请」栏自身有下手处：栏内检索 → 结果行给动作");
+const panelSearch = page.locator(".msg-main .user-search");
+ok((await panelSearch.count()) === 1, "申请栏首有检索框（从前本栏只有两张卡片，想结学友的人进来无从下手）");
+await panelSearch.locator('input[name="find"]').fill(`#${A.id}`);
+await panelSearch.locator('button[type="submit"]').click();
+await page.waitForURL(/find=/, { timeout: 15000 });
+await page.waitForLoadState("networkidle");
+ok((await page.locator(".hit-row", { hasText: "检索甲" }).count()) === 1, "栏内检索直达结果行");
+
 console.log("\n[7] 互证即成学友：结果行转「进入私聊」，且不再受每日条数之限");
 await search(`#${A.id}`);
 ok((await page.locator('.hit-row a:has-text("进 入 私 聊")').count()) === 1, "已是学友，行内直接给私聊入口");
@@ -227,6 +243,31 @@ await page.locator(".chat-input textarea").fill("幸会，今后常来常往。"
 await page.locator('.chat-input button[type="submit"]').click();
 await page.waitForTimeout(1500);
 ok((await page.locator(".chat-body .bubble").count()) === 1, "消息已发出并上屏");
+
+console.log("\n[7b] 输入法上屏的那一下 Enter 不得把半截话发出去");
+// 无头浏览器驱动不了真实输入法，这里按事件的真实次序复演「确认候选」那一下：
+// 先 compositionend（上屏），紧接着 keydown Enter —— Safari 正是这个次序，
+// keydown 到手时 isComposing 已是 false，全凭护栏的时间窗兜住。
+const imeCommitEnter = () =>
+  page.evaluate(() => {
+    const ta = document.querySelector(".chat-input textarea");
+    ta.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true, data: "你好" }));
+    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+  });
+await page.locator(".chat-input textarea").fill("nihao");
+await imeCommitEnter();
+await page.waitForTimeout(600);
+ok((await page.locator(".chat-body .bubble").count()) === 1, "上屏的那一下 Enter 没有发送");
+ok((await page.locator(".chat-input textarea").inputValue()) === "nihao", "文字原样留在输入框，也没多落一个换行");
+// 护栏不能把正常按 Enter 一并吞了：余波窗口过后，Enter 照常发送
+await page.waitForTimeout(200);
+await page.evaluate(() => {
+  document
+    .querySelector(".chat-input textarea")
+    .dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
+});
+await page.waitForTimeout(1500);
+ok((await page.locator(".chat-body .bubble").count()) === 2, "余波过后按 Enter 照常发送");
 
 console.log("\n[8] 甲方收到私聊，会话列表与线程俱在");
 await logout();
@@ -244,6 +285,29 @@ for (let i = 0; i < 33; i++) {
   last = await res.text();
 }
 ok(last.includes("检索过于频繁"), "超额后返回限流文案而非结果");
+
+console.log("\n[10] 管理者视角：学友功能同样在（从前管理员被排除在互证之外，整块功能看不见）");
+// 用测试账号临时充任管理者：这一视角正是「馆长试用时找不到申请按钮」的原样复现
+db.prepare("UPDATE users SET role='admin' WHERE username = ?").run(C_USER);
+await logout();
+await login(C_USER);
+await page.goto(BASE + "/messages", { waitUntil: "networkidle" });
+ok((await page.locator('.conv-item:has-text("学友申请")').count()) === 1, "管理者侧栏仍有「学友申请」入口");
+ok((await page.locator('.new-pm summary:has-text("学友名录")').count()) === 1, "「学友名录」只列真学友");
+ok(
+  (await page.locator('.new-pm summary:has-text("全员名录")').count()) === 1,
+  "查人便册另立一条、单独标名（从前它顶着「学友名录」列全员，看着就像谁都是学友）",
+);
+await search(`#${B.id}`);
+const adminRow = await hitRowText("检索乙");
+ok(adminRow.includes("申请学友私聊"), `管理者检索结果照常给「申请学友私聊」: ${adminRow}`);
+ok(adminRow.includes("私 信"), "另给管理者一个直达私信的便门");
+await page.goto(BASE + "/users/" + encodeURIComponent(B_USER), { waitUntil: "networkidle" });
+ok(
+  (await page.locator('.card button:has-text("申请学友私聊")').count()) === 1,
+  "管理者名册页也看得见学友申请（从前这一区整块不渲染）",
+);
+db.prepare("UPDATE users SET role='scholar' WHERE username = ?").run(C_USER);
 
 console.log("\n---- 页面异常 ----");
 console.log(pageErrors.slice(0, 8).join("\n") || "(无)");

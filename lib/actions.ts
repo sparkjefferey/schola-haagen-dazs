@@ -1169,6 +1169,10 @@ export async function sendMessageInline(receiverId: number, bodyRaw: string): Pr
 // ==================== 同侪互证（互相关注式） ====================
 // 互证即「学友」关系：互证双方可无限私聊。申请入口除名册页外，还有讯息页的
 // 学友检索——两者共用本组动作，`back` 参数决定办完回哪个页面（为空则回名册页）。
+// 管理者同样在这套关系里：原先把管理者排除在外，结果是馆长账号上整块学友功能
+// 一处入口都看不见（申请按钮、申请栏、名册页互证区全被跳过）；而「与管理者互证」
+// 本就是对抗报告里「私信管理员防线」的三条通路之一（endorsed / 互证 / 管理者先发），
+// 排除等于把这条通路堵死。故不再区分管理者。
 
 /**
  * 发起互证申请。讯息页的表单会附一个 `back` 字段（如 `/messages?find=张三`），
@@ -1184,7 +1188,6 @@ export async function requestCertificationAction(targetId: number, formData?: Fo
     .prepare("SELECT id, username, display_name, role, status FROM users WHERE id = ?")
     .get(targetId) as any;
   if (!target || target.status !== "active") backWith(dest, `/users/${enc(me.username)}`, "e", "cert_nouser");
-  if (me.role === "admin" || target.role === "admin") backWith(dest, `/users/${enc(me.username)}`, "e", "cert_admin");
   if (limitAccountAction(`cert:${me.id}`, 5, HOUR_MS)) {
     backWith(dest, `/users/${enc(target.username)}`, "e", "cert_rate");
   }
