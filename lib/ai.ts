@@ -38,6 +38,8 @@ const DAILY_PER_USER = envInt(process.env.AI_DAILY_PER_USER, 3);
 const DAILY_GLOBAL = envInt(process.env.AI_DAILY_GLOBAL, 50);
 const MAX_INPUT_CHARS = envInt(process.env.AI_MAX_INPUT_CHARS, 12_000);
 const TIMEOUT_MS = envInt(process.env.AI_TIMEOUT_MS, 60_000);
+/** 同时最多几条在跑。站主的取向：AI 可以慢，但别给机器增压 —— 排队总比堆并发好。 */
+const MAX_CONCURRENT = envInt(process.env.AI_MAX_CONCURRENT, 2);
 const MAX_OUTPUT_TOKENS = 1500;
 const DAY_MS = 24 * 3600_000;
 
@@ -137,6 +139,26 @@ export function consumeAiQuota(user: { id: number; role: string }): AiQuotaResul
 /** 退款：只退个人次数。全站桶是账单上限，不退 —— 否则上游一坏就能无限重试、无限花钱。 */
 export function refundAiQuota(userId: number) {
   refundFixedWindow(userKey(userId));
+}
+
+// ==================== 并发闸 ====================
+// 站主的取向：**AI 可以慢，但不要给机器增压**。同一时刻只放 N 条出站调用出去，
+// 其余的召唤留在 pending 队列里，由页面小件隔几秒再来领 —— 排队总比堆并发好。
+// 计数只在进程内（与本模块的其它状态一致）：进程重启即归零，而调用本身也随之消失。
+
+let inFlight = 0;
+
+/** 现在是否已经满载（满载时不要去领新任务，让它继续排队）。 */
+export function aiAtCapacity(): boolean {
+  return inFlight >= MAX_CONCURRENT;
+}
+
+/** 占用/释放一个并发位。占用后**必须**在 finally 里释放，否则闸门会越收越紧。 */
+export function aiEnterCall(): void {
+  inFlight++;
+}
+export function aiLeaveCall(): void {
+  inFlight = Math.max(0, inFlight - 1);
 }
 
 // ==================== 提示词 ====================

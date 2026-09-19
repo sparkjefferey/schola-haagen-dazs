@@ -6,9 +6,10 @@
  *       注入与渲染（无 <script>、无链接）· 删除 AI 回复 · 非 2xx 与水合报错零容忍。
  *
  * 用法：
- *   1) 起站点（env 在模块加载时读取，必须一起给；AI_TIMEOUT_MS 要大于桩服务的慢应答 5 秒）：
+ *   1) 起站点（env 在模块加载时读取，必须一起给；AI_TIMEOUT_MS 要大于桩服务的慢应答 5 秒；
+ *      AI_MAX_CONCURRENT=1 是并发闸那一步的断言前提 —— AI 可以慢，但别给机器增压）：
  *        AI_API_KEY=stub AI_BASE_URL=http://127.0.0.1:3999/v1 AI_MODEL=stub-model \
- *        AI_DAILY_PER_USER=10 npm run dev -- --port 3100
+ *        AI_DAILY_PER_USER=10 AI_MAX_CONCURRENT=1 npm run dev -- --port 3100
  *      （桩服务由本脚本自己起在 3999；也可另开 node scripts/ai-stub-server.mjs）
  *   2) node scripts/e2e-ai.mjs
  *   3) 另跑一遍「隐藏态」：不带任何 AI_* 变量重启站点，再跑一次（会自动识别并只跑隐藏态断言）
@@ -298,6 +299,25 @@ await stubMode("slow");
 await say("@学正 点评 SCHOLA-2026-9001");
 ok(await waitForAtLeast(pendingBubbles(), 1, 8000), "慢应答期间显示「正在思索」气泡");
 ok((await aiCards().count()) === 3, "此时尚未作答");
+// 并发闸：此刻已有一条在跑（桩服务正慢答），第二声召唤不该跟着挤上去 —— 排队即可。
+// 直接往库里插一条 pending、再用接口去领，就能在单页面上验出「满载时只排队、不执行」。
+const queuedId = Number(
+  db
+    .prepare("INSERT INTO ai_calls (thread_id, requester_id, paper_id, question) VALUES (?, ?, NULL, ?)")
+    .run(threadId, A.id, "排队测试").lastInsertRowid,
+);
+const second = await page.request.post(`${BASE}/api/ai/run`, {
+  // 中间件要求 POST 带 Origin（浏览器 fetch 自带，这里得手动加）
+  headers: { "Content-Type": "application/json", Origin: BASE },
+  data: { call_id: queuedId },
+});
+const secondBody = await second.json().catch(() => null);
+ok(
+  secondBody?.skipped === true && secondBody?.status === "running",
+  `满载时第二声召唤只排队、不执行（本断言假定站点以 AI_MAX_CONCURRENT=1 启动）: ${JSON.stringify(secondBody)}`,
+);
+ok(stubState.requests.length === 1, `第二声召唤没有同时压到上游（桩收到 ${stubState.requests.length} 次）`);
+db.prepare("DELETE FROM ai_calls WHERE id = ?").run(queuedId); // 别让它挂成僵尸气泡
 ok(await waitForAtLeast(aiCards(), 4, 30000), "慢应答最终也上屏");
 await stubMode("error");
 freshQuota(A.id);

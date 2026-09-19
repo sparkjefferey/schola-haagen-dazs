@@ -7,8 +7,11 @@ import { notifyThreadReply } from "@/lib/notifications";
 import { consumeFixedWindow } from "@/lib/rate-limit";
 import {
   AI_NAME,
+  aiAtCapacity,
   aiConfigured,
+  aiEnterCall,
   aiFailureNote,
+  aiLeaveCall,
   aiModelName,
   askAi,
   buildPrompt,
@@ -75,6 +78,11 @@ export async function POST(req: Request) {
     finish("refused", note);
     return NextResponse.json({ ok: false, error: note }, { headers: NO_STORE });
   }
+
+  // 并发闸：满载就**先不领**，让任务继续排队（小件隔几秒会再来问）——
+  // 站主的取向是「AI 可以慢，但别给机器增压」，排队比堆并发稳妥。
+  // 从这里到 aiEnterCall() 之间全是同步代码（Node 单线程），不会被别的请求插进来。
+  if (aiAtCapacity()) return skipped("running");
 
   // 原子领取：pending，或 running 且已卡死五分钟以上（进程重启、隧道中断留下的僵尸）
   const claim = db
@@ -146,7 +154,14 @@ export async function POST(req: Request) {
     asker: asker.display_name,
   });
 
-  const res = await askAi(prompt.user, prompt.system);
+  aiEnterCall();
+  let res: Awaited<ReturnType<typeof askAi>>;
+  try {
+    res = await askAi(prompt.user, prompt.system);
+  } finally {
+    // 必须在 finally 里放位：漏放一次，闸门就永久收紧一格
+    aiLeaveCall();
+  }
   if (!res.ok) {
     // 退款：退个人次数（用户没得到东西不该白扣）。**不退全站桶** —— 那是账单上限，
     // 退了就等于上游一坏就能无限重试、无限花钱。

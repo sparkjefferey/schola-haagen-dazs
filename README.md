@@ -51,10 +51,11 @@ npm run e2e:find-friend       # 终端 2：学友检索与申请（按学号/雅
 学正（AI 点评）另有一套，靠**本地桩模型服务**跑真链路、不花钱：
 
 ```bash
-# 终端 1：带 AI 配置起站点（桩服务由套件自己起在 3999；AI_TIMEOUT_MS 要大于桩的慢应答 5 秒）
+# 终端 1：带 AI 配置起站点（桩服务由套件自己起在 3999；AI_TIMEOUT_MS 要大于桩的慢应答 5 秒；
+#          AI_MAX_CONCURRENT=1 是并发闸那一步的断言前提）
 AI_API_KEY=stub AI_BASE_URL=http://127.0.0.1:3999/v1 AI_MODEL=stub-model \
-AI_DAILY_PER_USER=10 npm run dev -- --port 3100
-npm run e2e:ai                # 终端 2：隐藏态 / 正常点评 / 追问 / 外发口径 / 免费额度 / 注入与渲染 / 删除
+AI_DAILY_PER_USER=10 AI_MAX_CONCURRENT=1 npm run dev -- --port 3100
+npm run e2e:ai                # 终端 2：隐藏态 / 正常点评 / 追问 / 外发口径 / 并发闸 / 额度 / 注入与渲染 / 删除
 # 再验一遍隐藏态：不带任何 AI_* 变量重启站点，重跑同一命令（会自动只跑隐藏态断言）
 ```
 
