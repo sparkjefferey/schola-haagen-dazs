@@ -43,6 +43,11 @@ services:
       - AI_DAILY_PER_USER=${AI_DAILY_PER_USER:-3}
       - AI_DAILY_GLOBAL=${AI_DAILY_GLOBAL:-50}
       - AI_MAX_CONCURRENT=${AI_MAX_CONCURRENT:-2}
+      # 单次回答的输出上限（token）：必须给「思考」留余量——思考也计入 max_tokens，
+      # 太小会让模型思考完就没额度写正文（表现为「模型服务暂时不可用」）。
+      - AI_MAX_OUTPUT_TOKENS=${AI_MAX_OUTPUT_TOKENS:-6000}
+      # 思考强度：none 直接作答（实测快 4~5 倍、用量降到约 1/4）；留空=服务商默认（思考全开）
+      - AI_REASONING_EFFORT=${AI_REASONING_EFFORT:-none}
       - AI_MAX_INPUT_CHARS=${AI_MAX_INPUT_CHARS:-12000}
       - AI_TIMEOUT_MS=${AI_TIMEOUT_MS:-60000}
     volumes:

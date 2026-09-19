@@ -331,6 +331,30 @@ await page.waitForLoadState("networkidle");
 ok(await waitForAtLeast(aiCards(), 5), "重试成功、作答上屏");
 ok(bucketCount(`ai:user:${A.id}`) === 1, "重试算一次新额度（桶计数 1）");
 
+// 2026-09-19 线上真实故障的回归：max_tokens 小于模型的「思考」开销时，上游 200 但正文为空
+//（finish_reason=length）。这种失败必须给可操作提示，而不是笼统的「模型服务暂时不可用」——
+// 否则用户只会对着「再请一次」反复点，永远点不出结果。
+const truncBubbles = () => page.locator('.ai-reply:has-text("思考占满了输出额度")');
+await stubMode("empty");
+freshQuota(A.id);
+await say("@学正 点评 SCHOLA-2026-9001");
+ok(await waitForAtLeast(truncBubbles(), 1, 30000), "上游空正文（finish_reason=length）→ 给出可操作提示");
+// 上一步「再请一次」成功后，旧的通用失败气泡已被作答替换；这一次不该再冒出通用文案
+ok(
+  (await page.locator('.ai-reply:has-text("模型服务暂时不可用")').count()) === 0,
+  "空正文没有再被笼统报成「模型服务暂时不可用」（该文案计数应为 0）",
+);
+ok(bucketCount(`ai:user:${A.id}`) === 0, `该次失败也退了个人次数（桶计数 ${bucketCount(`ai:user:${A.id}`)}）`);
+await stubMode("ok");
+
+// 关思考必须真的下发到请求体里：思考全开时同一材料实测 12.0s/2174token，关掉后 2.6s/504token。
+// 站点默认 AI_REASONING_EFFORT=none，这条断言防它日后被静默改回（或某次重构漏掉该字段）。
+const lastPayload = stubState.requests[stubState.requests.length - 1]?.payload;
+ok(
+  lastPayload?.reasoning_effort === "none",
+  `召唤请求带上了 reasoning_effort=none（实得 ${JSON.stringify(lastPayload?.reasoning_effort)}）`,
+);
+
 console.log("\n[6] 注入与渲染：模型的输出不能带出可执行内容与链接");
 freshQuota(A.id);
 await stubReset();

@@ -40,7 +40,28 @@ const MAX_INPUT_CHARS = envInt(process.env.AI_MAX_INPUT_CHARS, 12_000);
 const TIMEOUT_MS = envInt(process.env.AI_TIMEOUT_MS, 60_000);
 /** 同时最多几条在跑。站主的取向：AI 可以慢，但别给机器增压 —— 排队总比堆并发好。 */
 const MAX_CONCURRENT = envInt(process.env.AI_MAX_CONCURRENT, 2);
-const MAX_OUTPUT_TOKENS = 1500;
+/**
+ * 单次回答的输出上限（token）。**必须给思考留足余量**：
+ * deepseek-flash 这类「先思考后作答」的模型，思考本身也计入 max_tokens——
+ * 实测同一帖文，思考可吃掉 1500+ token。原先写死 1500 时，思考把额度耗光、
+ * 正文恒为空，全站召唤一律报「模型服务暂时不可用」（2026-09-19 线上实测）。
+ * 现默认 6000：思考约 2400 + 正文约 1100 仍有富余。注意这只是上限，
+ * 计费按实际用量，调大不会凭空多花钱。
+ */
+const MAX_OUTPUT_TOKENS = envInt(process.env.AI_MAX_OUTPUT_TOKENS, 6000);
+
+/**
+ * 思考强度。「先思考后作答」的模型（如 deepseek-flash）默认会先花几百上千 token 想一遍，
+ * 又慢又贵。2026-09-19 实测同一份材料：
+ *   思考全开 12.0s / 2174 token / 564 字   vs   reasoning_effort=none 2.6s / 504 token / 512 字
+ * ——关掉思考后答案照样有判断、有理由、带编号，只是不再绕弯子。本馆取向：「够用就行」。
+ * 可填 none|low|medium|high；留空或写 off 则不下发该参数（用服务商默认，即思考全开）。
+ */
+const REASONING_EFFORT = (() => {
+  const raw = (process.env.AI_REASONING_EFFORT ?? "none").trim().toLowerCase();
+  if (raw === "" || raw === "off" || raw === "default") return "";
+  return ["none", "low", "medium", "high"].includes(raw) ? raw : "none";
+})();
 const DAY_MS = 24 * 3600_000;
 
 /** 学正在站内的名号与召唤词。 */
@@ -55,7 +76,7 @@ export const aiConfigured = Boolean(KEY);
 // 而对用户的文案是泛化的，不主动记就很难查）。
 // 开发模式下模块会被反复求值，故不打，免得每个请求刷一行。
 if (process.env.NODE_ENV !== "development") {
-  if (aiConfigured) console.log(`[ai] 学正已开馆：${MODEL} @ ${BASE_URL}`);
+  if (aiConfigured) console.log(`[ai] 学正已开馆：${MODEL} @ ${BASE_URL}（思考 ${REASONING_EFFORT || "按服务商默认"}）`);
   else console.log("[ai] 未配置 AI_API_KEY，论坛召唤学正的功能已隐藏");
 }
 
@@ -278,6 +299,8 @@ export async function askAi(userMessage: string, systemPrompt = SYSTEM_PROMPT): 
         ],
         max_tokens: MAX_OUTPUT_TOKENS,
         stream: false,
+        // 思考强度：none 让模型直接作答（省时省钱）。留空则不带此字段，用服务商默认。
+        ...(REASONING_EFFORT ? { reasoning_effort: REASONING_EFFORT } : {}),
       }),
       // 超时是必须的：没有它，上游卡住会一直占着连接直到隧道先断
       signal: AbortSignal.timeout(TIMEOUT_MS),
@@ -288,12 +311,19 @@ export async function askAi(userMessage: string, systemPrompt = SYSTEM_PROMPT): 
       return { ok: false, reason: `upstream_${res.status}` };
     }
     const data = (await res.json()) as any;
-    const raw = data?.choices?.[0]?.message?.content;
+    const choice = data?.choices?.[0];
+    const raw = choice?.message?.content;
     // 有的兼容端点会把内容返回成数组；别把 "[object Object]" 当成正常答案收下
     const text = typeof raw === "string" ? raw.trim() : "";
     if (!text) {
-      console.error("[ai] 上游返回空内容");
-      return { ok: false, reason: "empty" };
+      // 空正文最常见的原因是「思考吃光了输出额度」：finish_reason = length。
+      // 记下 finish_reason —— 没有它，线上只能看到一句"空内容"，查不出是额度还是上游抽风。
+      const finish = String(choice?.finish_reason ?? "(无)");
+      const reasoning = Number(data?.usage?.completion_tokens_details?.reasoning_tokens ?? 0) || 0;
+      console.error(
+        `[ai] 上游返回空内容（finish_reason=${finish}，思考用了 ${reasoning} token，上限 ${MAX_OUTPUT_TOKENS}）`,
+      );
+      return { ok: false, reason: finish === "length" ? "truncated" : "empty" };
     }
     return {
       ok: true,
@@ -314,5 +344,8 @@ export async function askAi(userMessage: string, systemPrompt = SYSTEM_PROMPT): 
 export function aiFailureNote(reason: string): string {
   if (reason === "timeout") return "模型服务响应超时。";
   if (reason === "unconfigured") return "学正尚未开馆（未配置模型服务）。";
+  if (reason === "truncated") {
+    return "学正这次的思考占满了输出额度，没能落笔作答。把帖子缩短些、或把要求写得更具体，再请一次即可。";
+  }
   return "模型服务暂时不可用。";
 }

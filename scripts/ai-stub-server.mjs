@@ -9,7 +9,7 @@
  * 站点侧须以 AI_BASE_URL=http://127.0.0.1:3999/v1 启动，否则请求会打到真服务上去。
  *
  * 控制面（仅供测试脚本用）：
- *   POST /__control  {"mode":"ok|error|slow|garbage|inject"}   切换应答模式
+ *   POST /__control  {"mode":"ok|error|slow|garbage|inject|empty"}   切换应答模式
  *   GET  /__state                                       读模式与**收到的全部请求体**
  *   POST /__reset                                       清空记录并回到 ok
  *
@@ -19,6 +19,9 @@
  *   slow    先睡 5 秒再答（配合站点 AI_TIMEOUT_MS 小值可测超时）
  *   garbage 返回一段非 JSON 正文（解析失败 → failed）
  *   inject  正文里塞 <script>、markdown 链接、超长文本（测渲染与限长）
+ *   empty   HTTP 200 但正文为空、finish_reason=length —— 模拟「思考吃光输出额度」，
+ *           用于断言站点给出的是可操作提示而不是笼统的「模型服务暂时不可用」
+ *           （2026-09-19 线上真实故障：max_tokens 小于模型的思考开销，正文恒空）
  */
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
@@ -60,6 +63,21 @@ export function createStub() {
             `**引语**如下：\n\n> 桩服务的应答\n\n${long}`,
         ),
       );
+    }
+    if (state.mode === "empty") {
+      // 空正文 + finish_reason=length：桩在冒充「思考吃光输出额度」的上游
+      return json(res, 200, {
+        id: "stub-empty",
+        object: "chat.completion",
+        model: "stub-model",
+        choices: [{ index: 0, message: { role: "assistant", content: "" }, finish_reason: "length" }],
+        usage: {
+          prompt_tokens: 2000,
+          completion_tokens: 1500,
+          total_tokens: 3500,
+          completion_tokens_details: { reasoning_tokens: 1500 },
+        },
+      });
     }
     const last = state.requests[state.requests.length - 1]?.payload;
     const ask = String(last?.messages?.find((m) => m.role === "user")?.content ?? "").slice(-80);
