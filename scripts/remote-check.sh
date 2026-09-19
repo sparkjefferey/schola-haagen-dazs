@@ -51,8 +51,9 @@ echo
 echo "--- 数据库迁移是否落地（只读，容器内查） ---"
 # 数据在 schola-data 卷里，宿主机没有 db 文件，故走容器内的 node + better-sqlite3。
 # 用途：部署后确认 initSchema 的迁移真的跑了（曾有过「代码上了、列没补」的先例）。
-# 注意要先进项目目录：本脚本是经 ssh 'bash -s' 喂进来执行的，起点是家目录而非项目目录，
-# 直接 docker compose 会报「no configuration file provided」。
+# 两条注意：①要先进项目目录（本脚本经 ssh 'bash -s' 喂进来执行，起点是家目录）；
+# ②凡是可能去读 stdin 的命令都要写 < /dev/null —— bash -s 是边读 stdin 边执行的，
+#   命令一旦读走 stdin，后面的脚本正文就一起被吃掉了（本文件 05:54 那次就因此只跑了一半）。
 (cd /opt/schola-haagen-dazs && docker compose exec -T schola node -e "
 const D = require('better-sqlite3');
 const db = new D('/app/data/schola.db', { readonly: true });
@@ -62,13 +63,13 @@ console.log('replies.kind   =', cols('replies').includes('kind') ? '有' : '缺'
 console.log('ai_calls 表    =', has('ai_calls') ? '有（' + db.prepare('SELECT COUNT(*) AS c FROM ai_calls').get().c + ' 行）' : '缺');
 console.log('certifications =', has('certifications') ? '有' : '缺');
 console.log('integrity      =', db.pragma('integrity_check')[0].integrity_check);
-") 2>&1 || echo "(容器内查询失败——容器可能没在跑)"
+" < /dev/null) 2>&1 || echo "(容器内查询失败——容器可能没在跑)"
 echo
 
 echo "--- 学正（AI）开馆状态 ---"
 # 启动日志里那一行（lib/ai.ts 打的）就说明了：配没配 key、用的哪个模型与接口。
 # 只读日志，不会打印密钥本身。
-(cd /opt/schola-haagen-dazs && docker compose logs --tail 300 schola 2>&1 | grep -m2 "\[ai\]") 2>/dev/null \
+(cd /opt/schola-haagen-dazs && docker compose logs --tail 300 schola < /dev/null 2>&1 | grep -m2 "\[ai\]") 2>/dev/null \
   || echo "(日志里暂无 [ai] 行：容器可能还是旧镜像，或刚重启尚未输出)"
 
 echo
