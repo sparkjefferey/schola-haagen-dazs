@@ -65,6 +65,13 @@ console.log('integrity      =', db.pragma('integrity_check')[0].integrity_check)
 ") 2>&1 || echo "(容器内查询失败——容器可能没在跑)"
 echo
 
+echo "--- 学正（AI）开馆状态 ---"
+# 启动日志里那一行（lib/ai.ts 打的）就说明了：配没配 key、用的哪个模型与接口。
+# 只读日志，不会打印密钥本身。
+(cd /opt/schola-haagen-dazs && docker compose logs --tail 300 schola 2>&1 | grep -m2 "\[ai\]") 2>/dev/null \
+  || echo "(日志里暂无 [ai] 行：容器可能还是旧镜像，或刚重启尚未输出)"
+
+echo
 echo "--- 入侵绊线自检 ---"
 for p in /opt/ops /opt/sync.sh; do
   [ -e "$p" ] && echo "!! 发现可疑路径: $p" || echo "OK 无 $p"
