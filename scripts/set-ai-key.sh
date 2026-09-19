@@ -59,6 +59,9 @@ if [ "$want" != "$got" ]; then
   exit 1
 fi
 
-echo ">> .env 最终内容（密钥已打码）："
-sed -E 's/^(AI_API_KEY=).*/\1<已设置>/' .env | grep -E '^[A-Z_]+=' | sed 's/^/   /'
+echo ">> AI_* 项已写入（密钥只报长度，其余本就非敏感）："
+awk -F= '/^AI_/ { if ($1 == "AI_API_KEY") print "   AI_API_KEY=<已设置，长度 " length($2) ">"; else print "   " $1 "=" $2 }' .env
+# 只列变量名，绝不打印值 —— 这份日志会被仓库协作者看到，
+# 而 .env 里还有 SMTP 授权码等与本次操作无关的密钥（2026-09-19 踩过：打全量内容把授权码带进了 CI 日志）。
+echo ">> .env 内其余变量（只列名字）：$(grep -oE '^[A-Z_]+' .env | grep -v '^AI_' | sort -u | tr '\n' ' ')"
 echo ">> 完成。下一步：跑一次常规部署（update.sh）让容器带上新 env。"
