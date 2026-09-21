@@ -15,6 +15,7 @@
     "e2e:papers": "node scripts/e2e-papers.mjs",
     "e2e:find-friend": "node scripts/e2e-find-friend.mjs",
     "e2e:ai": "node scripts/e2e-ai.mjs",
+    "e2e:coins": "node scripts/e2e-coins.mjs",
     "public": "cloudflared tunnel --url http://localhost:3000"
   },
   "dependencies": {

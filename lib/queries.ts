@@ -12,10 +12,13 @@ import {
   type Report,
   type Announcement,
 } from "./db";
+import { COIN_SCORE_WEIGHT } from "./coins";
 
 export interface ScholarStat extends SafeUser {
   paper_count: number;
   total_views: number;
+  /** 学望：所刊论著收到的墨银总数（投出即焚，此处只是声望计数） */
+  total_tips: number;
   score: number;
   last_activity: string;
 }
@@ -27,7 +30,8 @@ export function getRanking(limit = 50): ScholarStat[] {
               u.banned_reason, u.endorsed, u.root, u.created_at,
               COUNT(p.id) AS paper_count,
               COALESCE(SUM(p.views), 0) AS total_views,
-              (COUNT(p.id) * 20 + COALESCE(SUM(p.views), 0)) AS score,
+              COALESCE(SUM(p.tips), 0) AS total_tips,
+              (COUNT(p.id) * 20 + COALESCE(SUM(p.views), 0) + COALESCE(SUM(p.tips), 0) * ?) AS score,
               COALESCE(MAX(p.created_at), u.created_at) AS last_activity
        FROM users u
        LEFT JOIN papers p ON p.author_id = u.id AND p.status = 'published'
@@ -35,11 +39,12 @@ export function getRanking(limit = 50): ScholarStat[] {
        ORDER BY score DESC, paper_count DESC, u.id ASC
        LIMIT ?`,
     )
-    .all(limit)
+    .all(COIN_SCORE_WEIGHT, limit)
     .map((r: any) => ({
       ...toAuthor(r),
       paper_count: r.paper_count,
       total_views: r.total_views,
+      total_tips: r.total_tips,
       score: r.score,
       last_activity: r.last_activity,
     }));
@@ -92,6 +97,9 @@ function toAuthor(r: any): SafeUser {
     endorsed: r.endorsed || 0,
     root: r.root || 0,
     email: r.email || "",
+    // 刻意不带出余额：这些 JOIN 取的是*他人*的名册快照，钱囊数目只有本人与燕京阁
+    // 该看见。要显示本人余额一律走 getSessionUser（它读 users.* 全列）。
+    coin_balance: 0,
     created_at: r.user_created_at ?? r.created_at,
   };
 }
@@ -211,6 +219,7 @@ export function getPaper(id: number): (Paper & { author: SafeUser; authors: Pape
     cover_letter: p.cover_letter || "",
     decision_note: p.decision_note || "",
     views: p.views,
+    tips: p.tips ?? 0,
     accepted_at: p.accepted_at || null,
     published_at: p.published_at || null,
     created_at: p.created_at,
@@ -226,6 +235,7 @@ export function getPaper(id: number): (Paper & { author: SafeUser; authors: Pape
       endorsed: a.endorsed,
       root: a.root,
       email: a.email || "",
+      coin_balance: 0,
       created_at: a.created_at,
     },
     authors: paperAuthors(p.id),
@@ -340,6 +350,7 @@ function rowToPaper(r: any) {
     cover_letter: r.cover_letter || "",
     decision_note: r.decision_note || "",
     views: r.views,
+    tips: r.tips ?? 0,
     accepted_at: r.accepted_at || null,
     published_at: r.published_at || null,
     created_at: r.created_at,

@@ -24,6 +24,8 @@ export interface User {
   endorsed: number;
   banned_reason: string;
   root: number;
+  /** 墨银余额（冗余快查；唯一真源是 coin_ledger 账本） */
+  coin_balance: number;
   created_at: string;
 }
 
@@ -51,6 +53,8 @@ export interface Paper {
   cover_letter: string;
   decision_note: string;
   views: number;
+  /** 累积收到的墨银（投出即焚，此处只是计数，不等于任何人的余额） */
+  tips: number;
   accepted_at: string | null;
   published_at: string | null;
   created_at: string;
@@ -232,6 +236,7 @@ export function initSchema() {
       banned_reason TEXT NOT NULL DEFAULT '',
       endorsed      INTEGER NOT NULL DEFAULT 0,
       root          INTEGER NOT NULL DEFAULT 0,
+      coin_balance  INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -252,6 +257,7 @@ export function initSchema() {
       status        TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','published','rejected')),
       reject_reason TEXT NOT NULL DEFAULT '',
       views         INTEGER NOT NULL DEFAULT 0,
+      tips          INTEGER NOT NULL DEFAULT 0,
       created_at    TEXT NOT NULL DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_papers_author ON papers(author_id);
@@ -473,8 +479,12 @@ export function initSchema() {
   addCol("users", "endorsed", "endorsed INTEGER NOT NULL DEFAULT 0");
   addCol("users", "root", "root INTEGER NOT NULL DEFAULT 0");
   addCol("users", "email", "email TEXT NOT NULL DEFAULT ''");
+  addCol("users", "coin_balance", "coin_balance INTEGER NOT NULL DEFAULT 0");
   addCol("papers", "status", "status TEXT NOT NULL DEFAULT 'published' CHECK (status IN ('pending','published','rejected'))");
   addCol("papers", "reject_reason", "reject_reason TEXT NOT NULL DEFAULT ''");
+  // 墨银「获币数」。注意：本行写在下方 papers 表重建之前，故**重建用的 papers_new
+  // DDL 里也必须带 tips 列**——否则全新库会先补列、再被重建抹掉，运行时 no such column。
+  addCol("papers", "tips", "tips INTEGER NOT NULL DEFAULT 0");
   // 学正（AI）回复标记：老库的 replies 无此列（seed.mjs 亦以旧形 DDL 建表），缺则补
   addCol("replies", "kind", "kind TEXT NOT NULL DEFAULT 'human'");
 
@@ -525,6 +535,7 @@ export function initSchema() {
         cover_letter    TEXT NOT NULL DEFAULT '',
         decision_note   TEXT NOT NULL DEFAULT '',
         views           INTEGER NOT NULL DEFAULT 0,
+        tips            INTEGER NOT NULL DEFAULT 0,
         accepted_at     TEXT,
         published_at    TEXT,
         created_at      TEXT NOT NULL DEFAULT (datetime('now')),
@@ -595,6 +606,31 @@ export function initSchema() {
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_paper_authors ON paper_authors(paper_id);`);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_review_events ON review_events(paper_id, created_at);`);
+
+  // 墨银账本：一张表同时承担「领取记录」「投币明细」「余额流水」三职（轻量化：不另建表）。
+  // 余额另以 users.coin_balance 冗余存一份供快查，本表是唯一真源。
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS coin_ledger (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id    INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind       TEXT NOT NULL,
+      amount     INTEGER NOT NULL,
+      paper_id   INTEGER REFERENCES papers(id) ON DELETE SET NULL,
+      day        TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+  // 每日领取的硬闸：同一人同一天至多一条 daily 记录——靠数据库唯一索引保证，
+  // 不靠前端禁用、也不靠先查后写（并发下先查后写必漏）。kind 刻意不加 CHECK 约束，
+  // 日后加新类型（如「评议赠币」）无需迁移。
+  db.exec(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_coin_daily ON coin_ledger(user_id, day) WHERE kind = 'daily'`,
+  );
+  // 「我在某篇稿上已投几枚」与「某篇稿收了多少」两处查法
+  db.exec(
+    `CREATE INDEX IF NOT EXISTS idx_coin_tip ON coin_ledger(user_id, paper_id) WHERE kind = 'tip'`,
+  );
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_coin_paper ON coin_ledger(paper_id);`);
 
   // 幂等回填：旧稿无 manuscript_code 者补编号（用于稿号展示与引用块）
   db.exec(
@@ -695,6 +731,7 @@ export const userMapper = (row: any): SafeUser => ({
   banned_reason: row.banned_reason,
   endorsed: row.endorsed,
   root: row.root,
+  coin_balance: row.coin_balance ?? 0,
   created_at: row.created_at,
 });
 

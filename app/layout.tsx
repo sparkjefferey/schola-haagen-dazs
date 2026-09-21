@@ -10,6 +10,8 @@ import { MeanderBand } from "@/components/emblem";
 import { GreekKey, IonicColumn, Amphora, LaurelWreath } from "@/components/decor";
 import { logoutAction } from "@/lib/actions";
 import { MessageBell } from "@/components/message-bell";
+import CoinPurse from "@/components/coin-purse";
+import { COIN_DAILY, COIN_TIP_PER_PAPER, claimedToday } from "@/lib/coins";
 import { ImeEnterGuard } from "@/components/ime-enter-guard";
 import Link from "next/link";
 
@@ -87,6 +89,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                     {user.role === "admin" && <span className="badge badge-admin">管理者</span>}
                     {/* 首屏即带出未读数，省掉一次客户端往返造成的红点延迟 */}
                     <MessageBell initialCount={getUnreadCount(user.id)} />
+                    {/* 钱囊：余额与「今日是否已领」都由服务端带出，客户端不再空手取数 */}
+                    <CoinPurse
+                      initialBalance={user.coin_balance}
+                      initialClaimable={!claimedToday(user.id)}
+                      daily={COIN_DAILY}
+                      tipCap={COIN_TIP_PER_PAPER}
+                    />
                     {user.role === "admin" && <Link className="nitem" href="/admin">燕京阁</Link>}
                   </span>
                   <form action={logoutAction} className="inline-form">

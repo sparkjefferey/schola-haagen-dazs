@@ -18,6 +18,12 @@ services:
       - PM_DAILY_LIMIT=${PM_DAILY_LIMIT:-5}
       - SCHOLAR_CLIENT_RATE_LIMIT=${SCHOLAR_CLIENT_RATE_LIMIT:-20}
       - COOL_DOWN_HOURS=${COOL_DOWN_HOURS:-24}
+      # 墨银（每日登录津贴，投给优质论著即焚）：可选，改完 `docker compose up -d` 生效。
+      # COIN_TIP_PER_PAPER = 同一人对同一篇稿的投币上限；COIN_SCORE_WEIGHT = 每枚墨银在
+      # 学绩分里的权重（一枚顶几次阅览）。改权重只影响之后的算分，已入账流水不变。
+      - COIN_DAILY=${COIN_DAILY:-5}
+      - COIN_TIP_PER_PAPER=${COIN_TIP_PER_PAPER:-3}
+      - COIN_SCORE_WEIGHT=${COIN_SCORE_WEIGHT:-5}
       # 论文附件上传限制（可选；格式白名单见 lib/attachment-formats.ts，文件存 schola-data 卷）
       - ATTACHMENT_MAX_MB=${ATTACHMENT_MAX_MB:-20}
       - ATTACHMENT_TOTAL_MB=${ATTACHMENT_TOTAL_MB:-50}

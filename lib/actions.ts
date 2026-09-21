@@ -43,6 +43,7 @@ import {
   type InspectedUpload,
 } from "@/lib/attachments";
 import { USERNAME_RE } from "@/lib/username";
+import { claimDaily, tipPaper, coinBalance, type CoinResult } from "@/lib/coins";
 
 /** Location 头不能含非 ASCII 字符：用户名/查询值可能是中文，redirect 前必须百分号编码，
  *  个人页 safeDecodeSegment 会解码（含手机 WebView 双重编码场景）。 */
@@ -1413,6 +1414,33 @@ export async function resolveReportAction(reportId: number, action: "resolve" | 
   if (result.changes === 0) fail("检举不存在或已经处置");
   logAudit(actor.id, `report.${action}`, `report#${reportId}`, action === "dismiss" ? "驳回其检举" : "检举已了");
   redirect("/admin?tab=reports&ok=检举已处");
+}
+
+// ==================== 墨银 ====================
+
+/**
+ * 每日领取墨银。
+ *
+ * **刻意不调 revalidatePath**：Server Action 里一 revalidate，Next 就会重渲染当前
+ * 路由——而领币按钮挂在全站顶栏，等于在用户正读到一半的长文页上整页闪一下
+ * （阅读量自增当初就是为此改走 Route Handler 的）。余额由客户端拿返回值直接改写。
+ * 「点开即变」的交互不该依赖服务端重渲染，这是本站踩过坑的通则。
+ * 至于别处页面上的余额，本来就是服务端渲染的，站内跳转时自然是最新值。
+ */
+export async function claimDailyCoinAction(): Promise<CoinResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, reason: "inactive", balance: 0 };
+  return claimDaily(user);
+}
+
+/** 投一枚墨银给某篇论著。理由同上：不 revalidate，热度与余额都由客户端即时改写。 */
+export async function tipPaperAction(paperId: number): Promise<CoinResult> {
+  const user = await getSessionUser();
+  if (!user) return { ok: false, reason: "inactive", balance: 0 };
+  if (!Number.isInteger(paperId) || paperId <= 0) {
+    return { ok: false, reason: "gone", balance: coinBalance(user.id) };
+  }
+  return tipPaper(user, paperId);
 }
 
 // ==================== 谕令（公告） ====================

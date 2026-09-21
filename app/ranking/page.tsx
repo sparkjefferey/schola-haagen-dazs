@@ -1,6 +1,7 @@
 import { Metadata } from "next";
 import Link from "next/link";
 import { getRanking } from "@/lib/queries";
+import { COIN_SCORE_WEIGHT } from "@/lib/coins";
 import { Avatar } from "@/components/avatar";
 import { schoolYear, formatDate } from "@/lib/format";
 import { LaurelWreath } from "@/components/decor";
@@ -24,7 +25,7 @@ export default async function RankingPage() {
         <LaurelWreath size={52} color="var(--maroon)" />
         <h1 className="big-title" style={{ marginTop: 4 }}>作 者 学 榜</h1>
         <p className="quote" style={{ margin: "0 auto" }}>
-          抱负录于榜中：每文一功（+20），每读一进。第 {year} 学年，观诸公劳续如何。
+          抱负录于榜中：每文一功（+20），每读一进，每银一誉。第 {year} 学年，观诸公劳续如何。
         </p>
       </section>
 
@@ -36,6 +37,7 @@ export default async function RankingPage() {
             <th>入馆</th>
             <th>论著数</th>
             <th>总阅量</th>
+            <th>获墨银</th>
             <th>学绩分</th>
           </tr>
         </thead>
@@ -62,6 +64,7 @@ export default async function RankingPage() {
               <td style={{ color: "var(--ink-soft)", fontSize: 14 }}>{formatDate(s.created_at)}</td>
               <td>{s.paper_count}</td>
               <td>{s.total_views}</td>
+              <td style={{ color: "var(--gold-deep)" }}>{s.total_tips}</td>
               <td>
                 <b style={{ color: "var(--maroon-deep)", fontFamily: "var(--display)" }}>{s.score}</b>
               </td>
@@ -74,7 +77,7 @@ export default async function RankingPage() {
 
       <div className="ornament-divider">≋</div>
       <p className="meta" style={{ textAlign: "center" }}>
-        学绩分 = 论著数 × 20 + 总阅读量。排行榜每日更新，所记唯学。
+        学绩分 = 论著数 × 20 + 总阅读量 + 获墨银 × {COIN_SCORE_WEIGHT}。排行榜每日更新，所记唯学。
       </p>
     </div>
   );

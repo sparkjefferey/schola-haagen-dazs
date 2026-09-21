@@ -83,6 +83,11 @@ export default async function PapersPage({
                 </Link>
                 {p.author.endorsed === 1 && <span className="badge" style={{ marginLeft: 5 }}>认证</span>}
                 {" · "}{formatDate(p.created_at)} · 阅 {p.views}
+                {p.tips > 0 && (
+                  <span className="badge badge-gold" style={{ marginLeft: 6 }}>
+                    墨银 {p.tips}
+                  </span>
+                )}
               </div>
               {p.abstract && <p className="excerpt">{p.abstract}</p>}
             </div>

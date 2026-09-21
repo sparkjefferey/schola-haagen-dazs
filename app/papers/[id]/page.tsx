@@ -12,7 +12,9 @@ import {
   uploadAttachmentAction,
 } from "@/lib/actions";
 import ViewTally from "@/components/view-tally";
+import TipButton from "@/components/tip-button";
 import ReportButton from "@/components/report-button";
+import { COIN_TIP_PER_PAPER, myTipsOn } from "@/lib/coins";
 import { Avatar } from "@/components/avatar";
 import { renderMarkdown } from "@/lib/md";
 import { formatDate, formatBytes } from "@/lib/format";
@@ -291,6 +293,23 @@ export default async function PaperPage({
       {/* 引用块（刊印后） */}
       {paper.status === "published" && (
         <CitationBox citation={citation} bibtex={bibtex} />
+      )}
+
+      {/* 墨银投币：只对已刊之作开放。投出即焚，作者收不到币，只涨声望（学望） */}
+      {paper.status === "published" && (
+        <TipButton
+          paperId={paper.id}
+          initialTips={paper.tips}
+          initialMine={user ? myTipsOn(user.id, paper.id) : 0}
+          tipCap={COIN_TIP_PER_PAPER}
+          blocked={
+            !user || user.status !== "active"
+              ? "登录之后方可投币。"
+              : user.id === paper.author_id
+                ? "自己的论著不可自投。"
+                : ""
+          }
+        />
       )}
 
       {canDelete && (
