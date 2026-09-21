@@ -164,9 +164,12 @@ export interface Message {
 
 export interface Notification {
   id: number;
-  owner_id: number; // 收件人（论题作者）
-  kind: "thread_reply";
-  thread_id: number;
+  owner_id: number; // 收件人（论题 / 论著的主人）
+  kind: "thread_reply" | "paper_tip";
+  /** 跟帖提醒指向的论题；墨银得币提醒为 NULL */
+  thread_id: number | null;
+  /** 墨银得币提醒指向的论著；跟帖提醒为 NULL */
+  paper_id: number | null;
   last_reply_id: number | null; // 最新一条回应（被删则 SET NULL）
   last_actor_id: number | null;
   actors: string; // 逗号分隔的回应者名快照（最多 5 个，取最近的）
@@ -374,15 +377,20 @@ export function initSchema() {
     CREATE INDEX IF NOT EXISTS idx_messages_receiver ON messages(receiver_id, read);
     CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(sender_id, receiver_id, created_at);
 
-    -- 论辩回应提醒：自己的论题被人回复时生成一条（kind 目前仅 'thread_reply'，
-    -- 刻意不加 CHECK —— 日后要加 'mention' / 'cite' 之类新类别时无需重建表）。
-    -- 未读期间同一帖只留一条：count 累加、actors 记名、excerpt 更新为最新辩辞；
-    -- 作者读过之后再来的新回复才另起一条，免得热帖把讯息栏刷屏。
+    -- 提醒（论辩回应 / 墨银得币）：kind 目前有 'thread_reply'（论题被跟帖）
+    -- 与 'paper_tip'（论著收到墨银）。刻意不加 CHECK —— 日后要加 'mention'
+    -- / 'cite' 之类新类别时无需重建表。
+    -- **目标列按 kind 分开、且都必须可空**：跟帖指向 thread_id，投币指向 paper_id，
+    -- 两者互斥。曾经 thread_id 是 NOT NULL，墨银提醒没有「帖」可指，硬塞哨兵值
+    -- 会撞外键，只好把列放开（SQLite 不能 ALTER 列的 NOT NULL，故有下方重建迁移）。
+    -- 未读期间同一目标只留一条：count 累加、actors 记名、excerpt 更新为最新一则；
+    -- 主人读过之后再来的新记录才另起一条，免得热门目标把讯息栏刷屏。
     CREATE TABLE IF NOT EXISTS notifications (
       id            INTEGER PRIMARY KEY AUTOINCREMENT,
       owner_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       kind          TEXT NOT NULL DEFAULT 'thread_reply',
-      thread_id     INTEGER NOT NULL REFERENCES threads(id) ON DELETE CASCADE,
+      thread_id     INTEGER REFERENCES threads(id) ON DELETE CASCADE,
+      paper_id      INTEGER REFERENCES papers(id) ON DELETE CASCADE,
       last_reply_id INTEGER REFERENCES replies(id) ON DELETE SET NULL,
       last_actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
       actors        TEXT NOT NULL DEFAULT '',
@@ -487,6 +495,59 @@ export function initSchema() {
   addCol("papers", "tips", "tips INTEGER NOT NULL DEFAULT 0");
   // 学正（AI）回复标记：老库的 replies 无此列（seed.mjs 亦以旧形 DDL 建表），缺则补
   addCol("replies", "kind", "kind TEXT NOT NULL DEFAULT 'human'");
+  // 提醒目标列：论辩回应指向 thread_id，墨银得币指向 paper_id，并列且互斥。
+  // 这里只用最朴素的定义——带 REFERENCES 的 ADD COLUMN 在部分 SQLite 版本上会被拒，
+  // 完整外键交给下方重建用的新表定义（以及新建库时的 CREATE TABLE）承担。
+  addCol("notifications", "paper_id", "paper_id INTEGER DEFAULT NULL");
+
+  // ---- 迁移：提醒表放开 thread_id（墨银得币提醒没有「帖」可指） ----
+  // 原定义把 thread_id 写成 NOT NULL，而投币提醒只指向一篇稿。NULL 不受外键检查，
+  // 塞哨兵值则会撞外键，故只能把列放开；SQLite 又改不了列的 NOT NULL，只能重建。
+  // 表很小（几十行），代价可忽略。
+  // 顺序要紧：**先删旧索引**——RENAME 会让索引跟着旧表走且保留原索引名，
+  // 不清掉的话新表建索引时 IF NOT EXISTS 会直接跳过，新表就永远没有索引了。
+  if (hasTable("notifications")) {
+    const nCols = db.prepare("PRAGMA table_info(notifications)").all() as any[];
+    if (nCols.find((c) => c.name === "thread_id")?.notnull === 1) {
+      db.exec(`
+        DROP INDEX IF EXISTS idx_notifications_owner;
+        DROP INDEX IF EXISTS idx_notifications_thread;
+        DROP INDEX IF EXISTS idx_notifications_paper;
+        ALTER TABLE notifications RENAME TO notifications_old;
+        CREATE TABLE notifications (
+          id            INTEGER PRIMARY KEY AUTOINCREMENT,
+          owner_id      INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          kind          TEXT NOT NULL DEFAULT 'thread_reply',
+          thread_id     INTEGER REFERENCES threads(id) ON DELETE CASCADE,
+          paper_id      INTEGER REFERENCES papers(id) ON DELETE CASCADE,
+          last_reply_id INTEGER REFERENCES replies(id) ON DELETE SET NULL,
+          last_actor_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          actors        TEXT NOT NULL DEFAULT '',
+          count         INTEGER NOT NULL DEFAULT 1,
+          excerpt       TEXT NOT NULL DEFAULT '',
+          read          INTEGER NOT NULL DEFAULT 0,
+          created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT INTO notifications
+          (id, owner_id, kind, thread_id, paper_id, last_reply_id, last_actor_id,
+           actors, count, excerpt, read, created_at, updated_at)
+        SELECT id, owner_id, kind, thread_id, NULL, last_reply_id, last_actor_id,
+               actors, count, excerpt, read, created_at, updated_at
+        FROM notifications_old;
+        DROP TABLE notifications_old;
+        CREATE INDEX IF NOT EXISTS idx_notifications_owner ON notifications(owner_id, read, updated_at);
+        CREATE INDEX IF NOT EXISTS idx_notifications_thread ON notifications(thread_id);
+        CREATE INDEX IF NOT EXISTS idx_notifications_paper ON notifications(paper_id);
+      `);
+    }
+  }
+
+  // paper_id 的索引必须建在「补列 / 重建」**之后**：老库走到这里时表已存在、
+  // 但还没有 paper_id 列。若把这条 CREATE INDEX 留在上方那段建表块里，老库会
+  // 当场报 `no such column: paper_id`，整个 initSchema 就此中断——正是本文件
+  // addCol 注记里那个坑的同族（索引也算「引用了新列」，同样要排在补列后面）。
+  db.exec("CREATE INDEX IF NOT EXISTS idx_notifications_paper ON notifications(paper_id);");
 
   // ---- 迁移：用户名不区分大小写唯一 ----
   // 原 UNIQUE 约束区分大小写（"Rector" 与 "rector" 可并存），有人可借大小写变体取

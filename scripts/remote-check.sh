@@ -65,6 +65,7 @@ console.log('certifications =', has('certifications') ? '有' : '缺');
 console.log('coin_ledger 表 =', has('coin_ledger') ? '有（' + db.prepare('SELECT COUNT(*) AS c FROM coin_ledger').get().c + ' 行）' : '缺');
 console.log('users.钱囊列   =', cols('users').includes('coin_balance') ? '有' : '缺');
 console.log('papers.获币列  =', cols('papers').includes('tips') ? '有' : '缺');
+console.log('提醒.paper_id  =', cols('notifications').includes('paper_id') ? '有' : '缺');
 console.log('integrity      =', db.pragma('integrity_check')[0].integrity_check);
 " < /dev/null) 2>&1 || echo "(容器内查询失败——容器可能没在跑)"
 echo

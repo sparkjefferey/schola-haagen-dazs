@@ -1127,6 +1127,21 @@ footer .meander {
   background: linear-gradient(180deg, #4e8f60, #2f603c);
   box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
 }
+/* 论著得币：第四种来信（墨银到账，红点挂到读过为止）。比「辩」深一档的金，好区分 */
+.conv-avatar.coin {
+  width: 40px;
+  height: 40px;
+  flex: none;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--display);
+  font-size: 18px;
+  color: #4a3a12;
+  background: linear-gradient(180deg, #d9bd7c, #b4933f);
+  box-shadow: 0 0 0 2px rgba(180, 147, 63, 0.55);
+}
 /* 学友检索：讯息侧栏顶部的找人入口 */
 .user-search {
   display: flex;

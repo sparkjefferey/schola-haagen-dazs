@@ -22,7 +22,7 @@ import {
 import { logAudit, consumeInvite, createInviteCode } from "@/lib/governance";
 import { CONTENT_KEYS } from "@/lib/content";
 import { sendSystemMessage } from "@/lib/messages";
-import { notifyThreadReply } from "@/lib/notifications";
+import { notifyThreadReply, notifyPaperTip } from "@/lib/notifications";
 import { aiConfigured, parseSummon, resolvePaper, consumeAiQuota } from "@/lib/ai";
 import { notifyWeakPassword } from "@/lib/email";
 import { passwordStrength } from "@/lib/password-strength";
@@ -1440,7 +1440,25 @@ export async function tipPaperAction(paperId: number): Promise<CoinResult> {
   if (!Number.isInteger(paperId) || paperId <= 0) {
     return { ok: false, reason: "gone", balance: coinBalance(user.id) };
   }
-  return tipPaper(user, paperId);
+  const result = tipPaper(user, paperId);
+  if (result.ok) {
+    // 知会作者：他的论著收到了一枚墨银。
+    // 刻意放在事务之外——通知失败不该把已经投出的币退回去（币按「焚毁」设计，
+    // 真要回滚就得再造一套补偿逻辑），所以宁可漏一条提醒，不可乱了账。
+    const owner = db
+      .prepare("SELECT author_id FROM papers WHERE id = ?")
+      .get(paperId) as { author_id: number } | undefined;
+    if (owner) {
+      notifyPaperTip({
+        paperId,
+        ownerId: owner.author_id,
+        actorId: user.id,
+        actorName: user.display_name,
+        tips: result.tips ?? 0,
+      });
+    }
+  }
+  return result;
 }
 
 // ==================== 谕令（公告） ====================

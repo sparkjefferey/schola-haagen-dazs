@@ -32,6 +32,7 @@ export default async function MessagesPage({
   const withParam = sp.with ?? "";
   const isSystem = withParam === "system";
   const isNotices = withParam === "notices";
+  const isTips = withParam === "tips";
   const isCerts = withParam === "certs";
   const findQuery = (sp.find ?? "").trim();
 
@@ -70,13 +71,19 @@ export default async function MessagesPage({
 
   // 列表务必在标记已读之前取：本次渲染仍能看到哪几条是刚看过的（高亮），
   // 标记随后落库，刷新即归零。
-  const notices = isNotices ? listNotifications(me.id) : [];
-  const noticeUnread = isNotices ? 0 : getUnreadNoticeCount(me.id);
-  if (isNotices) markNotificationsRead(me.id);
+  // 两类提醒各占一栏、各算各的未读：混在一栏里「三枚墨银」与「三条跟帖」会共用
+  // 同一个数字，用户根本看不出哪边有新东西。
+  const notices = isNotices ? listNotifications(me.id, { kind: "thread_reply" }) : [];
+  const noticeUnread = isNotices ? 0 : getUnreadNoticeCount(me.id, "thread_reply");
+  if (isNotices) markNotificationsRead(me.id, "thread_reply");
+
+  const tips = isTips ? listNotifications(me.id, { kind: "paper_tip" }) : [];
+  const tipUnread = isTips ? 0 : getUnreadNoticeCount(me.id, "paper_tip");
+  if (isTips) markNotificationsRead(me.id, "paper_tip");
 
   let other: any = null;
   let thread: any[] = [];
-  if (withParam && !isSystem && !isNotices && !isCerts) {
+  if (withParam && !isSystem && !isNotices && !isTips && !isCerts) {
     const otherId = Number(withParam);
     if (Number.isFinite(otherId)) {
       const u = db.prepare("SELECT * FROM users WHERE id=?").get(otherId) as any;
@@ -152,6 +159,18 @@ export default async function MessagesPage({
             <div className="conv-last">你的论题收到的新跟帖</div>
           </div>
           {noticeUnread > 0 && <span className="msg-badge">{noticeUnread}</span>}
+        </Link>
+
+        <Link
+          href="/messages?with=tips"
+          className={`conv-item ${isTips ? "conv-active" : ""}`}
+        >
+          <div className="conv-avatar coin">銀</div>
+          <div className="conv-meta">
+            <div className="conv-name">论著得币</div>
+            <div className="conv-last">你的论著收到的墨银</div>
+          </div>
+          {tipUnread > 0 && <span className="msg-badge">{tipUnread}</span>}
         </Link>
 
         <Link
@@ -278,7 +297,9 @@ export default async function MessagesPage({
             </div>
           )
         ) : isNotices ? (
-          <NotificationPanel items={notices} />
+          <NotificationPanel items={notices} kind="thread_reply" />
+        ) : isTips ? (
+          <NotificationPanel items={tips} kind="paper_tip" />
         ) : isSystem ? (
           <SystemPanel messages={sysMsgs} />
         ) : isCerts ? (

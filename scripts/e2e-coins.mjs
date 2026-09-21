@@ -268,6 +268,52 @@ ok(
   "列表条目带「墨银 N」徽章",
 );
 
+// ---- [11] 论著得币提醒送达作者 ----
+console.log("\n[11] 作者收到得币提醒");
+await login(pageB, B);
+const aName = db.prepare("SELECT display_name FROM users WHERE id = ?").get(aId).display_name;
+const unreadBefore = await pageB.evaluate(
+  async () => (await (await fetch("/api/messages/unread")).json()).count,
+);
+
+const tipRows = db
+  .prepare("SELECT count, actors, excerpt, read FROM notifications WHERE owner_id = ? AND kind = 'paper_tip'")
+  .all(bId);
+ok(tipRows.length === 1, `同一篇稿只合并一条提醒（实际 ${tipRows.length} 条）——不是投一枚刷一条`);
+ok(tipRows[0]?.count === TIP_CAP, `合并计数 = ${TIP_CAP} 枚（实际 ${tipRows[0]?.count}）`);
+ok(tipRows[0]?.actors === aName, `记下投币者雅名（实际 ${tipRows[0]?.actors}）`);
+ok(
+  tipRows[0]?.read === 0 && unreadBefore >= 1,
+  `顶部未读总数 ${unreadBefore} 已把得币提醒算进去`,
+);
+
+await pageB.goto(BASE + "/messages?with=tips", { waitUntil: "networkidle" });
+const tipPanel = await pageB.locator("body").innerText();
+ok(tipPanel.includes("论著得币"), "讯息页有「论著得币」一栏");
+ok(
+  tipPanel.includes(`投了 ${TIP_CAP} 枚墨银`),
+  "写明的是「枚数」而不是「人数」（一个人可以投多枚）",
+);
+ok(tipPanel.includes(`《墨银试作·甲（${suffix}）》`), "指向那篇论著，点得进去");
+ok(tipPanel.includes(`此稿已获 ${TIP_CAP} 枚墨银`), "摘要给出该稿当下的总份量");
+
+const unreadAfter = await pageB.evaluate(
+  async () => (await (await fetch("/api/messages/unread")).json()).count,
+);
+ok(unreadAfter === unreadBefore - 1, `进过该栏即算读过，未读 -1（${unreadBefore} → ${unreadAfter}）`);
+
+// 读过之后再有新投币，才另起一条（与论辩回应同一套合并策略）
+db.prepare("UPDATE users SET coin_balance = 10 WHERE id = ?").run(aId);
+await pageA.goto(`${BASE}/papers/${pB2}`, { waitUntil: "networkidle" });
+await pageA.locator('[data-testid="tip-btn"]').click();
+await sleep(1800);
+ok(
+  db
+    .prepare("SELECT COUNT(*) c FROM notifications WHERE owner_id = ? AND kind = 'paper_tip'")
+    .get(bId).c === 2,
+  "已读的旧提醒不再吸收新投币，另起一条",
+);
+
 // ---- 清理 ----
 const rows = db.prepare(`SELECT id FROM users WHERE username LIKE '${TEST_PREFIX}%'`).all();
 db.prepare(`DELETE FROM users WHERE username LIKE '${TEST_PREFIX}%'`).run();
