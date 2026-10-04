@@ -15,6 +15,8 @@ const securityHeaders = [
       // 注：Next.js App Router 注入的 RSC 引导脚本需要内联，故 script/style 暂含 'unsafe-inline'。
       // 后续可改用 nonce 进一步收紧（见待办）。
       cspScriptSrc,
+      // 'wasm-unsafe-eval'：pdf.js 的 JPEG2000/JBIG2/ICC 色管用 WASM 解码器（见上）
+      "'wasm-unsafe-eval'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data: blob:",
       "font-src 'self'",
@@ -30,9 +32,9 @@ const securityHeaders = [
     value: "max-age=63072000; includeSubDomains",
   },
   { key: "X-Content-Type-Options", value: "nosniff" },
-  // X-Frame-Options 与上面的 frame-ancestors 并存：支持 CSP 的浏览器（现行各主流浏览器）
-  // 以 frame-ancestors 为准，故同源 iframe 仍可嵌入——论文页的手稿在线阅读器正靠此（附件路由
-  // 的 inline 响应被同源页面框入）。若要收紧 frame-ancestors，须一并处置那个阅读器。
+  // 2026-10 与 CSP 的关系：论文的在线阅读走自托管 pdf.js（canvas 渲染，public/pdfjs/），
+  // 不再自造 iframe；script-src 需 'wasm-unsafe-eval'（pdf.js 的 JPEG2000/ICC 解码器用 WASM，
+  // 支持该关键字的浏览器才走得快，老浏览器自动退 pdf.js 内置的 JS 解码）。
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {

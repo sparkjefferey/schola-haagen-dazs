@@ -16,6 +16,7 @@
  */
 import { chromium } from "playwright";
 import Database from "better-sqlite3";
+import fs from "node:fs";
 
 const BASE = process.env.BASE ?? "http://127.0.0.1:3100";
 if (!/^http:\/\/(127\.0\.0\.1|localhost):/.test(BASE)) {
@@ -39,6 +40,17 @@ const ok = (c, m) => {
 
 const browser = await chromium.launch();
 const page = await (await browser.newContext()).newPage();
+// 带着 Range 头打到附件路由的响应（第 [6] 节用：验证 pdf.js 真在按段取稿）
+const rangeResponses = [];
+page.on("response", (r) => {
+  try {
+    if (r.request().headers()["range"]) {
+      rangeResponses.push({ url: r.request().url().replace(BASE, ""), status: r.status() });
+    }
+  } catch {
+    /* 请求失效则不计 */
+  }
+});
 
 // ---- 注册 + 登录一个"刚刚入派"的学者 ----
 await page.goto(BASE + "/register", { waitUntil: "networkidle" });
@@ -140,7 +152,9 @@ ok(papers[papers.length - 1].status === "in_review", `认证学者免分诊，�
 console.log("\n[5] 正文与手稿文件二选一（正文可留空，以 PDF 等手稿文件呈递）");
 // 投稿限流是「每小时 5 篇」的真闸，上面几节已把额度用光；本节专测另一件事，先清桶。
 db.prepare("DELETE FROM rate_limit_windows WHERE key = ?").run(`paper:${me.id}`);
-const PDF = { name: "手稿.pdf", mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\n% 门槛试作手稿\n") };
+// 第 [5]/[6] 节用的手稿须是**有效**且大于 2×64KB 的真 PDF（pdf.js 按段取段只在
+// 文件大于两个分块时启用；太小的文件会被它整份取——用仓库里那份真实的论文 PDF）。
+const PDF = { name: "手稿.pdf", mimeType: "application/pdf", buffer: fs.readFileSync("docs/papers/feed-ratio-yield.pdf") };
 
 // 5a 客户端：选了手稿文件，正文框自行松开必填（不点开这一步，用户会以为正文还得再打一遍）
 await page.goto(BASE + "/papers/new", { waitUntil: "networkidle" });
@@ -192,8 +206,9 @@ ok(page.url().includes("e=atttype"), `正文留空但附件非法时，报的是
 u = await submit("正文不足三十字·无附件", { body: "太短了。" });
 ok(u.includes("e=body"), `正文不足 30 字且无附件，仍被拒: ${u}`);
 
-console.log("\n[6] 正文留空之稿的呈现与在线阅读");
+console.log("\n[6] 正文留空之稿的呈现与在线阅读（自托管 pdf.js）");
 const attId = db.prepare("SELECT id FROM paper_attachments WHERE paper_id = ?").get(lastPaper.id).id;
+const pdfUrl = `/api/papers/${lastPaper.id}/attachments/${attId}`;
 await page.goto(`${BASE}/papers/${lastPaper.id}`, { waitUntil: "networkidle" });
 ok(
   (await page.locator(".manuscript-box .manuscript-note").innerText()).includes("以手稿文件呈递"),
@@ -201,51 +216,43 @@ ok(
 );
 ok((await page.locator("article.prose").count()) === 0, "不会渲染出一个空的正文块");
 
+// 打开阅读器：pdf.js 画 canvas（不靠浏览器 PDF 插件，微信 X5 等内核也可读）
 await page.locator(".manuscript-act button").click();
-await page.waitForTimeout(800);
-const frameSrc = await page.locator(".reader-frame").getAttribute("src");
-ok(frameSrc === `/api/papers/${lastPaper.id}/attachments/${attId}`, `阅读器指向该手稿: ${frameSrc}`);
-await page.keyboard.press("Escape");
-await page.waitForTimeout(400);
-ok((await page.locator(".reader-mask").count()) === 0, "Esc 关闭后 iframe 随即卸载（不留在内存里）");
-
-// 附件路由按段应答：浏览器原生 PDF 阅读器翻到哪页取哪段，不必先整份下载
-const ranged = await page.evaluate(async (src) => {
-  const r = await fetch(src, { headers: { Range: "bytes=0-9" } });
-  const far = await fetch(src, { headers: { Range: "bytes=99999999-" } });
-  return {
-    status: r.status,
-    cr: r.headers.get("content-range"),
-    bytes: (await r.arrayBuffer()).byteLength,
-    accept: r.headers.get("accept-ranges"),
-    far: far.status,
-  };
-}, frameSrc);
-const fullSize = Number(
-  (await page.evaluate(async (src) => (await fetch(src)).headers.get("content-length"), frameSrc)) ?? 0,
-);
-ok(
-  ranged.status === 206 &&
-    ranged.bytes === 10 &&
-    ranged.accept === "bytes" &&
-    ranged.cr === `bytes 0-9/${fullSize}`,
-  `单段 Range 回 206 且只给请求的那 10 字节: ${JSON.stringify(ranged)}`,
-);
-ok(ranged.far === 416, "越界 Range 回 416，不整份白送");
-
-// 同源框入必须放行，否则在线阅读器是一片空白：靠的是 CSP frame-ancestors 'self'
-// 压过 X-Frame-Options: DENY（支持 CSP 的浏览器以 frame-ancestors 为准）。
-// 这里拿同源页面代附件路由验，因为两者走的是同一套全局响应头。
-const framedTitle = await page.evaluate(async () => {
-  const f = document.createElement("iframe");
-  f.src = "/papers";
-  document.body.appendChild(f);
-  await new Promise((r) => setTimeout(r, 1200));
-  const t = f.contentDocument?.title ?? "";
-  f.remove();
-  return t;
+await page.waitForSelector(".reader-scroll .pdfViewer .page canvas", { timeout: 30000 });
+const painted = await page.evaluate(() => {
+  const c = document.querySelector(".reader-scroll .pdfViewer .page canvas");
+  if (!c) return "无 canvas";
+  const ctx = c.getContext("2d");
+  if (!ctx) return "读不到 2d 上下文";
+  const d = ctx.getImageData(0, 0, c.width, c.height).data;
+  for (let k = 3; k < d.length; k += 4) if (d[k] !== 0) return "已落墨";
+  return "整版空白";
 });
-ok(framedTitle.length > 0, `同源页面可被框入（改响应头时勿忘在线阅读器）: title=${framedTitle}`);
+ok(painted === "已落墨", `首页 canvas 已画出内容: ${painted}`);
+await page.waitForSelector(".reader-scroll .textLayer span", { timeout: 30000 });
+ok((await page.locator(".reader-scroll .textLayer span").count()) > 0, "有文本层，稿内文字可选可抄");
+
+// 关闭即卸载：浮层连带 canvas 一并移除，pdf 文档与 worker 在组件内 destroy
+await page.keyboard.press("Escape");
+await page.waitForTimeout(500);
+ok((await page.locator(".reader-mask").count()) === 0, "Esc 关闭后浮层（连同 canvas）移除");
+
+// 按需取段：pdf.js 应带 Range 头逐段取稿（附件路由回 206），而非整份 200 白送
+const pdfRanges = rangeResponses.filter((r) => r.url === pdfUrl);
+ok(
+  pdfRanges.length > 0 && pdfRanges.every((r) => r.status === 206),
+  `pdf.js 按段取稿（${pdfRanges.length} 个 Range 请求，皆 206）: ${JSON.stringify(pdfRanges.slice(0, 3))}`,
+);
+const fullHit = (await page.evaluate(async (u) => {
+  // 直接核对该附件路由的两种应答形态，锁死 Range 行为
+  const a = await fetch(u, { headers: { Range: "bytes=0-9" } });
+  const b = await fetch(u, { headers: { Range: "bytes=99999999-" } });
+  return { status: a.status, cr: a.headers.get("content-range"), bytes: (await a.arrayBuffer()).byteLength, far: b.status };
+}, pdfUrl));
+ok(
+  fullHit.status === 206 && fullHit.bytes === 10 && fullHit.far === 416,
+  `附件路由单段应答正常: ${JSON.stringify(fullHit)}`,
+);
 
 // ---- 清理 ----
 const rows = db.prepare(`SELECT id FROM users WHERE username LIKE '${TEST_PREFIX}'`).all();

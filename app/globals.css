@@ -1598,7 +1598,8 @@ footer .meander {
   flex-wrap: wrap;
 }
 
-/* ---------- 手稿在线阅读器（浮层） ---------- */
+/* ---------- 手稿在线阅读器（pdf.js 浮层，components/PdfReader.tsx） ---------- */
+/* pdf.js 要求滚动容器为绝对定位（PDFViewer 构造时校验）；栏高用变量，滚动区从栏下沿起算 */
 .reader-mask {
   position: fixed;
   inset: 0;
@@ -1608,8 +1609,10 @@ footer .meander {
   padding: 3vh 3vw;
 }
 .reader-box {
+  --reader-bar-h: 46px;
   flex: 1;
   min-width: 0;
+  position: relative;
   display: flex;
   flex-direction: column;
   background: var(--parch-0);
@@ -1621,10 +1624,45 @@ footer .meander {
 .reader-bar {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 8px 14px;
+  gap: 8px;
+  height: var(--reader-bar-h);
+  padding: 0 12px;
   border-bottom: 1px solid var(--line);
   background: var(--parch-1);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.reader-bar::-webkit-scrollbar {
+  display: none;
+}
+.reader-bar .btn {
+  flex: none;
+}
+.reader-page {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--ink-soft);
+  white-space: nowrap;
+  flex: none;
+}
+.reader-find {
+  width: 168px;
+  padding: 5px 10px;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  background: var(--parch-0);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  color: var(--ink);
+  flex: none;
+}
+.reader-find-count {
+  font-size: 12.5px;
+  color: var(--gold-deep);
+  white-space: nowrap;
+  flex: none;
 }
 .reader-title {
   flex: 1;
@@ -1634,22 +1672,49 @@ footer .meander {
   white-space: nowrap;
   font-family: var(--serif);
   font-size: 14px;
-  color: var(--ink);
+  color: var(--ink-soft);
 }
 .reader-link {
   font-size: 13px;
   color: var(--accent-deep, var(--maroon-deep));
   text-decoration: none;
   white-space: nowrap;
+  flex: none;
 }
 .reader-link:hover {
   text-decoration: underline;
 }
-.reader-frame {
-  flex: 1;
-  width: 100%;
-  border: 0;
-  background: #6f6a62;
+.reader-loading {
+  position: absolute;
+  top: var(--reader-bar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-soft);
+  font-family: var(--serif);
+  font-size: 14.5px;
+  background: var(--parch-0);
+  z-index: 2;
+}
+.reader-loading-warn {
+  color: var(--maroon-deep);
+}
+/* 滚动区（pdf.js 明确要求 absolute）；页底色白由 pdf_viewer.css 接管 */
+.reader-scroll {
+  position: absolute;
+  top: var(--reader-bar-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+/* 阅读器里页字随浮层主题，不落羊皮纸纹路 */
+.reader-scroll .pdfViewer {
+  padding: 14px 10px 20px;
 }
 @media (max-width: 640px) {
   .reader-mask {
@@ -1658,8 +1723,12 @@ footer .meander {
   .reader-box {
     border: 0;
     border-radius: 0;
+    --reader-bar-h: 44px;
   }
   .reader-title {
     display: none;
+  }
+  .reader-find {
+    width: 110px;
   }
 }
