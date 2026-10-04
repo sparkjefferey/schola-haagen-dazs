@@ -6,6 +6,7 @@ import { requireUser } from "@/lib/auth";
 import { DISCIPLINES } from "@/lib/db";
 import { editPaperAction } from "@/lib/actions";
 import { PaperAuthorEditor, type AuthorRow } from "@/components/PaperAuthorEditor";
+import { countAttachments } from "@/lib/attachments";
 
 export const metadata: Metadata = { title: "修订文稿" };
 
@@ -25,6 +26,9 @@ export default async function EditPaperPage({ params }: { params: Promise<{ id: 
       </div>
     );
   }
+
+  // 与投稿同一条规矩：正文与手稿文件至少其一。附件在文稿页「著者案头」增删，此处只读本稿现有件数。
+  const attCount = countAttachments(paper.id);
 
   const defaultAuthors: AuthorRow[] = paper.authors
     .slice()
@@ -75,8 +79,19 @@ export default async function EditPaperPage({ params }: { params: Promise<{ id: 
           <PaperAuthorEditor ownerName={u.display_name} defaultAuthors={defaultAuthors} />
         </div>
         <div className="field">
-          <label htmlFor="p-body">正 文</label>
-          <textarea id="p-body" name="content" required style={{ minHeight: 320 }} defaultValue={paper.content} />
+          <label htmlFor="p-body">正 文{attCount > 0 ? `（可留空 · 本稿有 ${attCount} 件手稿文件）` : ""}</label>
+          <textarea
+            id="p-body"
+            name="content"
+            required={attCount === 0}
+            style={{ minHeight: 320 }}
+            defaultValue={paper.content}
+          />
+          <div className="hint">
+            {attCount > 0
+              ? "本稿已有手稿文件呈递，此处正文可留空；若两处都填，刊印时一并呈现。"
+              : "正文与手稿文件至少其一：正文须 30 字以上。亦可先回文稿页「著者案头」上传手稿文件，再回来把正文留空。"}
+          </div>
         </div>
         <div className="field">
           <label htmlFor="p-fund">基 金 与 鸣 谢（选填）</label>

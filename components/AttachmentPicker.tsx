@@ -11,15 +11,19 @@ import { ATTACHMENT_ACCEPT, extOf, ALLOWED_EXTS } from "@/lib/attachment-formats
  *   否则拒收一次会把已选好的合格文件也静默丢出表单载荷；
  * - 移除通过 DataTransfer 改写 input.files，无 JS 时退化为普通多文件上传，
  *   服务端校验与错误提示照常生效。
+ * - onCountChange 把「已选几件」报给外层（见 PaperManuscriptFields）：正文框据此松开必填，
+ *   因为正文与手稿文件是同一件东西的两种载体，至少其一即可。
  */
 export function AttachmentPicker({
   maxCount,
   maxBytes,
   totalBytes,
+  onCountChange,
 }: {
   maxCount: number;
   maxBytes: number;
   totalBytes: number;
+  onCountChange?: (count: number) => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
@@ -29,6 +33,13 @@ export function AttachmentPicker({
     const dt = new DataTransfer();
     next.forEach((f) => dt.items.add(f));
     if (inputRef.current) inputRef.current.files = dt.files;
+  }
+
+  /** 列表与 input.files 一并更新，并向外层报数——三处必须同进同退，故只此一个出口。 */
+  function commit(next: File[]) {
+    setFiles(next);
+    syncInput(next);
+    onCountChange?.(next.length);
   }
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
@@ -73,15 +84,11 @@ export function AttachmentPicker({
     }
 
     setError(null);
-    const next = [...files, ...picked];
-    setFiles(next);
-    syncInput(next);
+    commit([...files, ...picked]);
   }
 
   function removeAt(i: number) {
-    const next = files.filter((_, idx) => idx !== i);
-    setFiles(next);
-    syncInput(next);
+    commit(files.filter((_, idx) => idx !== i));
     setError(null);
   }
 

@@ -30,6 +30,9 @@ const securityHeaders = [
     value: "max-age=63072000; includeSubDomains",
   },
   { key: "X-Content-Type-Options", value: "nosniff" },
+  // X-Frame-Options 与上面的 frame-ancestors 并存：支持 CSP 的浏览器（现行各主流浏览器）
+  // 以 frame-ancestors 为准，故同源 iframe 仍可嵌入——论文页的手稿在线阅读器正靠此（附件路由
+  // 的 inline 响应被同源页面框入）。若要收紧 frame-ancestors，须一并处置那个阅读器。
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   {

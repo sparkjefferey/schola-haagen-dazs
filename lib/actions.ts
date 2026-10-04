@@ -31,6 +31,7 @@ import { consumeFixedWindow, resetFixedWindow, peekFixedWindow, rateLimitFingerp
 import { verifyCaptcha } from "@/lib/captcha";
 import {
   AttachmentError,
+  countAttachments,
   getAttachment,
   inspectUploadBatch,
   isRealUpload,
@@ -504,11 +505,19 @@ export async function createPaperAction(formData: FormData) {
   const funding = String(formData.get("funding") ?? "").trim().slice(0, 600);
   const cover_letter = String(formData.get("cover_letter") ?? "").trim().slice(0, 1000);
   const authorsJson = String(formData.get("authors_json") ?? "[]");
+  // 是否随稿（此处只判有无，魔数/配额等真校验仍在下方 inspectUploadBatch）。
+  // 须在判「正文是否为空」之前拿到：正文与手稿文件是同一件东西的两种载体，至少其一即可。
+  const picked = formData.getAll("files").filter(isRealUpload);
 
   if (title.length < 4 || title.length > 120) redirect("/papers/new?e=title");
   if (!DISCIPLINES.includes(discipline as any)) redirect("/papers/new?e=title");
   if (abstract.length > 600) redirect("/papers/new?e=abstract");
-  if (content.length < 30 || content.length > 200_000) redirect("/papers/new?e=body");
+  if (content.length > 200_000) redirect("/papers/new?e=body");
+  if (content.length > 0 && content.length < 30) redirect("/papers/new?e=body");
+  // 正文可留空，前提是有手稿文件兜底；两者俱无则整稿打回。
+  // 注意：正文为空但选了文件时不可就此放行——文件合不合格由下方 inspectUploadBatch 说了算，
+  // 不合格照报附件错误（投稿人本意是拿附件顶正文，报附件问题才对得上）。
+  if (content.length === 0 && picked.length === 0) redirect("/papers/new?e=nobody");
 
   const joined = new Date(user.created_at.endsWith("Z") ? user.created_at : user.created_at + "Z").getTime();
   if (Date.now() - joined < COOL_DOWN_HOURS * 3600_000 && !user.endorsed) {
@@ -516,9 +525,8 @@ export async function createPaperAction(formData: FormData) {
   }
   if (limitAccountAction(`paper:${user.id}`, 5, HOUR_MS)) redirect("/papers/new?e=rate");
 
-  // 随稿附件（选填）：先全面校验（扩展名白名单 + 魔数 + 配额），不合格者整单打回，
+  // 随稿附件：先全面校验（扩展名白名单 + 魔数 + 配额），不合格者整单打回，
   // 不产生半截稿件。文件本体待论文行落库后写入，写盘失败则回滚稿件。
-  const picked = formData.getAll("files").filter(isRealUpload);
   let inspected: InspectedUpload[] = [];
   if (picked.length > 0) {
     try {
@@ -621,7 +629,12 @@ export async function editPaperAction(paperId: number, formData: FormData) {
   if (title.length < 4 || title.length > 120) fail("论著标题须在 4–120 字之间。");
   if (!DISCIPLINES.includes(discipline as any)) fail("学科门类无效。");
   if (abstract.length > 600) fail("提要过长（限 600 字）。");
-  if (content.length < 30 || content.length > 200_000) fail("正文须在 30–200000 字之间。");
+  if (content.length > 200_000) fail("正文过长（限 200000 字）。");
+  if (content.length > 0 && content.length < 30) fail("正文须在 30–200000 字之间。");
+  // 与投稿同一条规矩：正文与手稿文件至少其一。附件在文稿页「著者案头」增删，此处只看本稿现有附件。
+  if (content.length === 0 && countAttachments(paperId) === 0) {
+    fail("正文与手稿文件至少其一：请填写正文；或先回文稿页「著者案头」上传手稿文件，此处正文便可留空。");
+  }
 
   const authors = parseAuthors(authorsJson, { display_name: user.display_name });
   const tx = db.transaction(() => {

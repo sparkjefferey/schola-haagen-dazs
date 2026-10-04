@@ -23,6 +23,7 @@ import { StatusBadge } from "@/components/StatusBadge";
 import { CitationBox } from "@/components/CitationBox";
 import { ReviewTimeline } from "@/components/ReviewTimeline";
 import { EditorialActions } from "@/app/admin/admin-actions";
+import { PdfReader } from "@/components/PdfReader";
 import { buildCitation, buildBibtex } from "@/lib/paper";
 import { getAttachments, ATTACHMENT_MAX_BYTES, ATTACHMENT_MAX_COUNT, ATTACHMENT_TOTAL_BYTES } from "@/lib/attachments";
 import { ATTACHMENT_ACCEPT } from "@/lib/attachment-formats";
@@ -66,6 +67,8 @@ export default async function PaperPage({
   const showAttachmentCard =
     attachments.length > 0 || (paper.status !== "published" && (isOwner || isAdmin));
   const hasCsv = attachments.some((a) => a.ext === "csv");
+  // 正文留空者以手稿文件呈递：正文位置摆第一件 PDF 主手稿的阅读器，免得页面开天窗。
+  const primaryPdf = attachments.find((a) => a.ext === "pdf") ?? null;
 
   const authors = [...paper.authors].sort((a, b) => a.author_order - b.author_order);
   const corr = authors.find((a) => a.is_corresponding === 1);
@@ -205,8 +208,28 @@ export default async function PaperPage({
         </div>
       )}
 
-      {/* 正文 */}
-      <article className="prose">{renderMarkdown(paper.content)}</article>
+      {/* 正文：可留空而以手稿文件呈递。此时在正文位置点明呈递之物，不往库里塞「正文见附件」的假正文 */}
+      {paper.content ? (
+        <article className="prose">{renderMarkdown(paper.content)}</article>
+      ) : (
+        <div className="manuscript-box">
+          <div className="abstract-tag">正 文 / FULL TEXT</div>
+          <p className="manuscript-note">本稿正文以手稿文件呈递，未另录正文。</p>
+          {primaryPdf ? (
+            <div className="manuscript-act">
+              <PdfReader
+                href={`/api/papers/${paper.id}/attachments/${primaryPdf.id}`}
+                downloadHref={`/api/papers/${paper.id}/attachments/${primaryPdf.id}?dl=1`}
+                fileName={primaryPdf.file_name}
+                label={`阅 读 主 手 稿 · ${primaryPdf.file_name}`}
+              />
+              <span className="hint">其余文件见下方「附件档案」。</span>
+            </div>
+          ) : (
+            <p className="hint">文件见下方「附件档案」，点击即下载。</p>
+          )}
+        </div>
+      )}
 
       {/* 基金与鸣谢 */}
       {paper.funding && (
@@ -241,6 +264,15 @@ export default async function PaperPage({
                   <span className="att-meta">
                     {formatBytes(att.size)} · {formatDate(att.created_at)}
                   </span>
+                  {att.ext === "pdf" && (
+                    <PdfReader
+                      href={`/api/papers/${paper.id}/attachments/${att.id}`}
+                      downloadHref={`/api/papers/${paper.id}/attachments/${att.id}?dl=1`}
+                      fileName={att.file_name}
+                      label="阅 读"
+                      buttonClass="btn btn-sm"
+                    />
+                  )}
                   <a
                     className="att-dl"
                     href={`/api/papers/${paper.id}/attachments/${att.id}?dl=1`}

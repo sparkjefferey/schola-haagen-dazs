@@ -1576,3 +1576,90 @@ footer .meander {
     white-space: normal;
   }
 }
+
+/* ---------- 正文以手稿文件呈递（正文留空时的正文位） ---------- */
+.manuscript-box {
+  margin: 22px 0;
+  padding: 18px 22px;
+  border-left: 3px solid var(--gold);
+  background: rgba(180, 147, 63, 0.06);
+  border-radius: 3px;
+}
+.manuscript-note {
+  margin: 8px 0 12px;
+  color: var(--ink-soft);
+  font-size: 14.5px;
+  line-height: 1.7;
+}
+.manuscript-act {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+/* ---------- 手稿在线阅读器（浮层） ---------- */
+.reader-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: rgba(28, 18, 10, 0.88);
+  display: flex;
+  padding: 3vh 3vw;
+}
+.reader-box {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--parch-0);
+  border: 1px solid var(--gold-deep);
+  border-radius: 4px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  overflow: hidden;
+}
+.reader-bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--parch-1);
+}
+.reader-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--serif);
+  font-size: 14px;
+  color: var(--ink);
+}
+.reader-link {
+  font-size: 13px;
+  color: var(--accent-deep, var(--maroon-deep));
+  text-decoration: none;
+  white-space: nowrap;
+}
+.reader-link:hover {
+  text-decoration: underline;
+}
+.reader-frame {
+  flex: 1;
+  width: 100%;
+  border: 0;
+  background: #6f6a62;
+}
+@media (max-width: 640px) {
+  .reader-mask {
+    padding: 0;
+  }
+  .reader-box {
+    border: 0;
+    border-radius: 0;
+  }
+  .reader-title {
+    display: none;
+  }
+}

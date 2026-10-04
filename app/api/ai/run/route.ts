@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getSessionUser } from "@/lib/auth";
 import { getPaper, getThread } from "@/lib/queries";
+import { countAttachments } from "@/lib/attachments";
 import { logAudit } from "@/lib/governance";
 import { notifyThreadReply } from "@/lib/notifications";
 import { consumeFixedWindow } from "@/lib/rate-limit";
@@ -126,8 +127,17 @@ export async function POST(req: Request) {
       finish("refused", "所引之稿不可评议。");
       return skipped("refused");
     }
+    // 正文可留空而以手稿文件呈递（见 createPaperAction）。附件本体不外发，
+    // 故此处必须把「没有正文」写明，免得学正对着一片空白硬编出评语。
+    const attCount = countAttachments(paper.id);
+    const noBodyNote =
+      attCount > 0
+        ? `（本稿正文以 ${attCount} 件手稿文件呈递，未另录正文；文件本体不随材料外发，下文可供评议者仅题名与提要。）`
+        : "（本稿未录正文。）";
     const body = clampText(
-      [paper.abstract ? `摘要：${paper.abstract}` : "", paper.content].filter(Boolean).join("\n\n"),
+      [paper.abstract ? `摘要：${paper.abstract}` : "", paper.content || noBodyNote]
+        .filter(Boolean)
+        .join("\n\n"),
     );
     paperBlock = {
       title: paper.title,
